@@ -1,0 +1,26 @@
+{
+  "name": "aesir-cli",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "bin": {
+    "aesir-cli": "dist/index.js"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx --env-file .env src/index.ts",
+    "build": "tsup src/index.ts --format esm --target node20 --clean"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.26.2",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "dotenv": "^17.4.2",
+    "tsup": "^8.5.1",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}
