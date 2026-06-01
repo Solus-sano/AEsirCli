@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // import "dotenv/config";
-import {chatSingle, runTurn} from "./llm.js";
+import {chatSingle, chatStream, runTurn, runTurnStream} from "./llm.js";
 import fs from "node:fs/promises";
 import readline from "node:readline/promises";
 import { exec } from "node:child_process";
@@ -71,6 +71,18 @@ tmpTool.forEach(tool => registerTool(tool));
 async function main() {
     const messages: ChatMessage[] = [];// empty messages array
     // const r = await chat([{role: "user", content: "Hello, I'm Æsir"}]);
+    
+    let Usage: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+        cache_tokens: number;
+    } = {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        cache_tokens: 0,
+    };
     while (true) {
         // 用绿色">"提示符等待输入一行
         const userInput: string = await rl.question('\x1b[32m>\x1b[0m ');
@@ -81,9 +93,28 @@ async function main() {
         }
 
         messages.push({role: "user", content: userInput});
-        const assistantMessage = await runTurn(messages);
+
+        // let completeContent = "";
+        // for await (const event of chatStream(messages)) {
+        //     if (event.type === "text-delta") {
+        //         completeContent += event.text;
+        //         process.stdout.write(event.text);
+        //     }
+        //     if (event.type === "done") {
+        //         process.stdout.write("\n");
+        //     }
+        //     if (event.type === "usage") {
+        //         Usage.prompt_tokens += event.usage.prompt_tokens;
+        //         Usage.completion_tokens += event.usage.completion_tokens;
+        //         Usage.total_tokens += event.usage.total_tokens;
+        //         Usage.cache_tokens += event.usage.cache_tokens || 0;
+        //     }
+        // }
+        // messages.push({role: "assistant", content: completeContent});
+        // console.log(`\x1b[34mUsage: ${JSON.stringify(Usage, null, 2)}\x1b[0m`);
+        const assistantMessage = await runTurnStream(messages);
         messages.push(assistantMessage);
-        console.log(JSON.stringify(assistantMessage, null, 2));
+        // console.log(JSON.stringify(assistantMessage, null, 2));
 
         // catch ctrl + c
     }
