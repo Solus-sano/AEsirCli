@@ -27,8 +27,24 @@ async function read_file(args: unknown): Promise<string> {
 
 async function bash(args: unknown): Promise<string> {
     const command = (args as { command: string }).command;
-    const { stdout, stderr } = await promisify(exec)(command as string);
-    return `[stdout]:${stdout}\n[stderr]:${stderr}`;
+    const TIMEOUT_MS = 10000;
+    try {
+        const { stdout, stderr } = await promisify(exec)(command as string, {timeout: TIMEOUT_MS}); // 10 seconds timeout
+        return `[stdout]:${stdout}\n[stderr]:${stderr}`;
+    } catch (error: unknown) {
+        const e = error as {
+            killed?: boolean;
+            signal?: string;
+            stdout?: string;
+            stderr?: string;
+            message?: string;
+        }
+
+        if (e.killed && e.signal === "SIGTERM") {
+            return `Error: command timed out after ${TIMEOUT_MS / 1000}s and was killed.\n[stdout so far]:${e.stdout ?? ""}\n[stderr so far]:${e.stderr ?? ""}`;
+        }
+        return `Error: ${e.message ?? String(error)}\n[stdout]:${e.stdout ?? ""}\n[stderr]:${e.stderr ?? ""}`;
+    }
 }
 
 const tmpTool: Tool[] = [
@@ -65,12 +81,10 @@ const tmpTool: Tool[] = [
 ]
 
 tmpTool.forEach(tool => registerTool(tool));
-// registerTool(tmpTool[0]);
 
 
 async function main() {
     const messages: ChatMessage[] = [];// empty messages array
-    // const r = await chat([{role: "user", content: "Hello, I'm Æsir"}]);
     
     let Usage: {
         prompt_tokens: number;
@@ -83,6 +97,17 @@ async function main() {
         total_tokens: 0,
         cache_tokens: 0,
     };
+    let currentController: AbortController | null = null;
+    rl.on("SIGINT", () => {
+        if (currentController) {
+            currentController.abort();
+            currentController = null;
+        } else {
+            console.log("\nGoodbye!");
+            process.exit(0);
+        }
+    });
+
     while (true) {
         // 用绿色">"提示符等待输入一行
         const userInput: string = await rl.question('\x1b[32m>\x1b[0m ');
@@ -93,30 +118,21 @@ async function main() {
         }
 
         messages.push({role: "user", content: userInput});
-
-        // let completeContent = "";
-        // for await (const event of chatStream(messages)) {
-        //     if (event.type === "text-delta") {
-        //         completeContent += event.text;
-        //         process.stdout.write(event.text);
-        //     }
-        //     if (event.type === "done") {
-        //         process.stdout.write("\n");
-        //     }
-        //     if (event.type === "usage") {
-        //         Usage.prompt_tokens += event.usage.prompt_tokens;
-        //         Usage.completion_tokens += event.usage.completion_tokens;
-        //         Usage.total_tokens += event.usage.total_tokens;
-        //         Usage.cache_tokens += event.usage.cache_tokens || 0;
-        //     }
-        // }
-        // messages.push({role: "assistant", content: completeContent});
-        // console.log(`\x1b[34mUsage: ${JSON.stringify(Usage, null, 2)}\x1b[0m`);
-        const assistantMessage = await runTurnStream(messages);
-        messages.push(assistantMessage);
-        // console.log(JSON.stringify(assistantMessage, null, 2));
-
-        // catch ctrl + c
+        
+        currentController = new AbortController();
+        const { signal } = currentController;
+        try {
+            const assistantMessage = await runTurnStream(messages, signal);
+            messages.push(assistantMessage);
+        } catch (error) {
+            if (error instanceof DOMException && error.name === "AbortError") {
+                process.stdout.write('\n\x1b[31m[interrupted by user]\x1b[0m\n');
+                continue
+            }
+            throw error;
+        } finally {
+            currentController = null
+        }
     }
 }
 

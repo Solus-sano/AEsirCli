@@ -137,11 +137,12 @@ export async function queryLLM(postJson: unknown): Promise<AssistantMessage> {
     return FirstChoices.message as AssistantMessage;
 }
 
-export async function* queryLLMStream(postJson: unknown): AsyncGenerator<LLMStreamEvent> {
+export async function* queryLLMStream(postJson: unknown, signal?: AbortSignal): AsyncGenerator<LLMStreamEvent> {
     const response = await fetch(`${process.env.OPENAI_BASE_URL}/chat/completions`, {
         method: "POST",
         headers: CodingAgentHeader,
         body: JSON.stringify(postJson),
+        signal: signal ?? null,
     });
 
     if (!response.ok) {
@@ -206,7 +207,7 @@ export async function chatSingle(messages: ChatMessage[]): Promise<AssistantMess
     return await queryLLM(postJson);
 }
 
-export async function* chatStream(messages: ChatMessage[]): AsyncGenerator<LLMStreamEvent> {
+export async function* chatStream(messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<LLMStreamEvent> {
     const tools = Object.values(registry).map(tool => ({
         "type": "function",
         "function": tool
@@ -219,7 +220,7 @@ export async function* chatStream(messages: ChatMessage[]): AsyncGenerator<LLMSt
         "tools": tools
     }
     
-    for await (const event of queryLLMStream(postJson)) {
+    for await (const event of queryLLMStream(postJson, signal)) {
         yield event;
     }
 }
@@ -253,13 +254,13 @@ export async function runTurn(messages: ChatMessage[]): Promise<AssistantMessage
     }
 }
 
-export async function runTurnStream(messages: ChatMessage[]): Promise<AssistantMessage> {
+export async function runTurnStream(messages: ChatMessage[], signal?: AbortSignal): Promise<AssistantMessage> {
     while (true) {
         let completeContent = "";
         let completeReasoningContent = "";
         let finishReason: "stop" | "length" | "tool_calls" | "content_filter" | null = null;
         const toolCalls: Map<string, {id: string, name: string, arguments: string}> = new Map();
-        for await (const event of chatStream(messages)) {
+        for await (const event of chatStream(messages, signal)) {
             // yield event;
             if (event.type === "text-delta") {
                 completeContent += event.text;
