@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 
 import type { ChatMessage } from "./llm.js";
 import { registerTool, type Tool } from "./tools.js";
+import { eventsToMessages, SessionManager } from "./session.js";
 
 
 
@@ -84,19 +85,36 @@ tmpTool.forEach(tool => registerTool(tool));
 
 
 async function main() {
-    const messages: ChatMessage[] = [];// empty messages array
-    
-    let Usage: {
-        prompt_tokens: number;
-        completion_tokens: number;
-        total_tokens: number;
-        cache_tokens: number;
-    } = {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0,
-        cache_tokens: 0,
-    };
+    let messages: ChatMessage[] = [];// empty messages array
+    const sessionManager = new SessionManager();
+
+    let sessionId: string;
+
+    // sessions list
+    if (process.argv.includes("sessions")) {
+        const sessions = await sessionManager.list();
+        console.log("Sessions:");
+        for (const session of sessions) {
+            console.log(`- ${session.id} (${session.eventCount} events)`);
+        }
+        process.exit(0);
+    }
+
+    // --resume <id>
+    if (process.argv.includes("--resume")) {
+        const resumeId = process.argv[process.argv.indexOf("--resume") + 1];
+        if (!resumeId) {
+            console.error("Error: --resume requires a session ID");
+            process.exit(1);
+        }
+        sessionId = resumeId;
+        const events = await sessionManager.load(sessionId);
+        messages = eventsToMessages(events);
+        console.log(`[Resuming session ${sessionId}, ${events.length} events loaded]`);
+    } else {
+        sessionId = (await sessionManager.create()).id;
+    }
+
     let currentController: AbortController | null = null;
     rl.on("SIGINT", () => {
         if (currentController) {
@@ -113,17 +131,27 @@ async function main() {
         const userInput: string = await rl.question('\x1b[32m>\x1b[0m ');
         if (userInput.trim() === ":exit") {
             rl.close();
-            console.log("\nGoodbye!");
+            console.log(`\x1b[34m[Session: ${sessionId}]\x1b[0m`);
+            console.log("\x1b[34m\nGoodbye!\x1b[0m");
+       
             break;
         }
 
         messages.push({role: "user", content: userInput});
-        
+
+        await sessionManager.append(sessionId, {
+            type: "user_message",
+            content: userInput,
+            timestamp: new Date().toISOString()
+        });
         currentController = new AbortController();
         const { signal } = currentController;
         try {
-            const assistantMessage = await runTurnStream(messages, signal);
-            messages.push(assistantMessage);
+            const assistantMessage = await runTurnStream(
+                messages,
+                signal,
+                (event) => sessionManager.append(sessionId, event)
+            );
         } catch (error) {
             if (error instanceof DOMException && error.name === "AbortError") {
                 process.stdout.write('\n\x1b[31m[interrupted by user]\x1b[0m\n');

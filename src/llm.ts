@@ -1,6 +1,7 @@
 import process from "node:process";
 import { registry } from "./tools.js";
 import { parseSSE } from "./sse.js";
+import type { SessionEvent } from "./session.js";
 
 
 
@@ -35,14 +36,15 @@ type AssistantMessage = {
     content: string | null;
     tool_calls?: ToolCall[];
     reasoning_content?: string;
+    finish_reason?: "stop" | "length" | "tool_calls" | "content_filter" | null;
 }
 
 type LLMStreamEvent = 
-    | { type: "text-delta"; text: string }
-    | { type: "reasoning-delta"; text: string }
-    | { type: "tool-call-start"; index: number; id: string; name: string }
-    | { type: "tool-call-delta"; index: number; id: string; argDelta: string }
-    | { type: "done"; finishReason: "stop" | "length" | "tool_calls" | "content_filter" | null}
+    | { type: "text-delta"; text: string, finish_reason: null }
+    | { type: "reasoning-delta"; text: string, finish_reason: null }
+    | { type: "tool-call-start"; index: number; id: string; name: string, finish_reason: null }
+    | { type: "tool-call-delta"; index: number; id: string; argDelta: string, finish_reason: null }
+    | { type: "done"; finish_reason: "stop" | "length" | "tool_calls" | "content_filter"}
     | { type: "usage"; usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cache_tokens: number; } }
 
 export type ChatMessage = UserMessage | AssistantMessage | ToolMessage | SystemMessage;
@@ -164,26 +166,26 @@ export async function* queryLLMStream(postJson: unknown, signal?: AbortSignal): 
 
         const { delta, finish_reason } = firstChoice;
         if (delta.content) {
-            yield { type: "text-delta", text: delta.content };
+            yield { type: "text-delta", text: delta.content, finish_reason: null };
         }
 
         if (delta.reasoning_content) {
-            yield { type: "reasoning-delta", text: delta.reasoning_content };
+            yield { type: "reasoning-delta", text: delta.reasoning_content, finish_reason: null };
         }
 
         if (delta.tool_calls) {
             for (const toolCall of delta.tool_calls) {
                 if (toolCall.id && toolCall.function?.name) {
-                    yield { type: "tool-call-start", index: toolCall.index, id: toolCall.id, name: toolCall.function.name };
+                    yield { type: "tool-call-start", index: toolCall.index, id: toolCall.id, name: toolCall.function.name, finish_reason: null };
                 }
                 if (toolCall.function?.arguments) {
-                    yield { type: "tool-call-delta", index: toolCall.index, id: toolCall.id ?? "", argDelta: toolCall.function.arguments };
+                    yield { type: "tool-call-delta", index: toolCall.index, id: toolCall.id ?? "", argDelta: toolCall.function.arguments, finish_reason: null };
                 }
             }
         }
 
         if (finish_reason) {
-            yield { type: "done", finishReason: finish_reason };
+            yield { type: "done", finish_reason: finish_reason };
         }
     }
     
@@ -254,7 +256,11 @@ export async function runTurn(messages: ChatMessage[]): Promise<AssistantMessage
     }
 }
 
-export async function runTurnStream(messages: ChatMessage[], signal?: AbortSignal): Promise<AssistantMessage> {
+export async function runTurnStream(
+    messages: ChatMessage[], 
+    signal?: AbortSignal,
+    onEvent?: (event: SessionEvent) => Promise<void>
+): Promise<AssistantMessage> {
     while (true) {
         let completeContent = "";
         let completeReasoningContent = "";
@@ -278,7 +284,7 @@ export async function runTurnStream(messages: ChatMessage[], signal?: AbortSigna
                 }
             }
             if (event.type === "done") {
-                finishReason = event.finishReason;
+                finishReason = event.finish_reason;
             }
             printLLMStreamEvent(event);
         }
@@ -297,6 +303,7 @@ export async function runTurnStream(messages: ChatMessage[], signal?: AbortSigna
                 content: completeContent,
                 reasoning_content: completeReasoningContent,
                 tool_calls: tool_calls,
+                finish_reason: finishReason,
             };
             for (const toolCall of tool_calls) {
                 process.stdout.write(`\x1b[90mUse tool: ${toolCall.function.name} with arguments: ${toolCall.function.arguments}\n\x1b[0m`);
@@ -307,9 +314,18 @@ export async function runTurnStream(messages: ChatMessage[], signal?: AbortSigna
                 role: "assistant",
                 content: completeContent,
                 reasoning_content: completeReasoningContent,
+                finish_reason: finishReason,
             };
         }
         messages.push(assistantMessage);
+        await onEvent?.({
+            type: "assistant_message",
+            content: assistantMessage.content,
+            tool_calls: assistantMessage.tool_calls ?? [],
+            reasoning_content: assistantMessage.reasoning_content ?? "",
+            finish_reason: assistantMessage.finish_reason ?? null,
+            timestamp: new Date().toISOString()
+        } as SessionEvent);
         // console.log(JSON.stringify(assistantMessage, null, 2));
         
         if (assistantMessage.tool_calls) {
@@ -328,6 +344,12 @@ export async function runTurnStream(messages: ChatMessage[], signal?: AbortSigna
                     tool_result = `Error running tool ${toolCall.function.name}: ${error instanceof Error ? error.message : String(error)}`;
                 }
                 messages.push({role: "tool", content: tool_result, tool_call_id: toolCall.id});
+                await onEvent?.({
+                    type: "tool_result",
+                    tool_call_id: toolCall.id,
+                    content: tool_result,
+                    timestamp: new Date().toISOString()
+                } as SessionEvent);
             }
         }
         else return assistantMessage;
