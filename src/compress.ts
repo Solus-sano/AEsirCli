@@ -1,5 +1,5 @@
 import type { ChatMessage } from "./messages.js";
-import { chatSingle } from "./providers/kimi-cli-compat.js";
+import type { Provider, ProviderInput } from "./providers/types.js";
 
 
 const NO_TOOLS_PREAMBLE = `CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
@@ -231,15 +231,34 @@ ${formattedSummary}\n\n`
 
 }
 
-export async function compressMessages(messages: ChatMessage[]): Promise<ChatMessage[]> {
+export async function compressMessages(
+    providerInput: ProviderInput,
+    LLMProvider: Provider
+): Promise<ProviderInput> {
     const compressStarMessage: ChatMessage = {
         role: "user",
         content: getCompactPrompt(),
     }
     
-    const compressResponse = await chatSingle([...messages, compressStarMessage])
-    let compressUserMessages: ChatMessage[] = []
-    if (!compressResponse.content) {
+    let completeContent = "";
+    let completeReasoningContent = "";
+    let finishReason: "stop" | "length" | "tool_calls" | "content_filter" | null = null;
+    const messagesWithPrompt = [...providerInput.messages, compressStarMessage];
+
+    for await (const event of LLMProvider.stream({ ...providerInput, messages: messagesWithPrompt })) {
+        if (event.type === "text-delta") {
+            completeContent += event.text;
+        }
+        if (event.type === "reasoning-delta") {
+            completeReasoningContent += event.text;
+        }
+        if (event.type === "done") {
+            finishReason = event.finish_reason;
+        }
+    }
+
+    const compressUserMessages: ChatMessage[] = []
+    if (completeContent.length === 0) {
         compressUserMessages.push({
             role: "user",
             content: "There is no content in the response from the compress model.",
@@ -247,8 +266,13 @@ export async function compressMessages(messages: ChatMessage[]): Promise<ChatMes
     } else {
         compressUserMessages.push({
             role: "user",
-            content: getCompactUserSummaryMessage(compressResponse.content),
+            content: getCompactUserSummaryMessage(completeContent),
         })
     }
-    return compressUserMessages
+    const providerOutput: ProviderInput = {
+        messages: compressUserMessages,
+        tools: []
+    }
+
+    return providerOutput
 }

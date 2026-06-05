@@ -8,9 +8,13 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 
 import type { ChatMessage } from "./messages.js";
-import { registerTool, type Tool } from "./tools.js";
+import { registerTool, registry, type Tool } from "./tools.js";
 import { eventsToMessages, SessionManager } from "./session.js";
 import { ifTooLong, compressMessages } from "./compress.js";
+import { KimiCLICompatProvider } from "./providers/kimi-cli-compat.js";
+import { resetRenderState } from "./render.js";
+import type { ProviderInput } from "./providers/types.js";
+
 
 
 
@@ -155,7 +159,13 @@ async function main() {
         // check if the messages are too long
         if (ifTooLong(messages)) {
             console.log("\x1b[90m[Messages are too long, compressing...]\x1b[0m");
-            const compressUserMessages = await compressMessages(messages);
+            const {messages: compressUserMessages} = await compressMessages(
+                {
+                    messages: messages,
+                    tools: []
+                },
+                KimiCLICompatProvider
+            );
 
             const summaryContent = compressUserMessages[0]?.content ?? "";
             await sessionManager.append(sessionId, {
@@ -177,13 +187,19 @@ async function main() {
         currentController = new AbortController();
         const { signal } = currentController;
         try {
-            const assistantMessage = await runTurnStream(
-                messages,
-                signal,
-                (event) => sessionManager.append(sessionId, event)
+            const providerOutput = await runTurnStream(
+                {
+                    messages: messages,
+                    tools: Object.values(registry),
+                    signal: signal
+                },
+                KimiCLICompatProvider,
+                (event) => sessionManager.append(sessionId, event),
+                true
             );
         } catch (error) {
             if (error instanceof DOMException && error.name === "AbortError") {
+                resetRenderState();
                 process.stdout.write('\n\x1b[31m[interrupted by user]\x1b[0m\n');
                 continue
             }

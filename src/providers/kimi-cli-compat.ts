@@ -2,6 +2,8 @@ import { type ChatMessage, type AssistantMessage } from "../messages.js";
 import { registry } from "../tools.js";
 import { parseSSE } from "../sse.js";
 import { type LLMEvent } from "../events.js";
+import type { Provider } from "./types.js";
+import type { ProviderInput } from "./types.js";
 
 
 const CodingAgentHeader = {
@@ -158,3 +160,25 @@ export async function* chatStream(messages: ChatMessage[], signal?: AbortSignal)
         yield event;
     }
 }   
+
+
+export async function* chatStreamForProvider(input: ProviderInput): AsyncGenerator<LLMEvent> {
+    const tools = input.tools.map(tool => ({
+        "type": "function",
+        "function": tool
+    }));
+    const postJson = {
+        "model": process.env.MODEL,
+        "messages": input.messages,
+        "stream": true,
+        // "temperature": process.env.TEMPRETURE,
+        "tools": tools
+    }
+    
+    for await (const event of queryLLMStream(postJson, input.signal)) {
+        yield event;
+    }
+}
+export const KimiCLICompatProvider: Provider = {
+    stream: chatStreamForProvider,
+};  

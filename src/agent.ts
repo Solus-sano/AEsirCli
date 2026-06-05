@@ -4,48 +4,20 @@ import type { SessionEvent } from "./session.js";
 
 import type { ChatMessage, AssistantMessage, ToolCall } from "./messages.js";
 import { printLLMStreamEvent, truncateToolOutput } from "./render.js";
-import { chatSingle, chatStream } from "./providers/kimi-cli-compat.js";
-
-export async function runTurn(messages: ChatMessage[]): Promise<AssistantMessage> {
-    while (true) {
-        const assistantMessage = await chatSingle(messages);
-        messages.push(assistantMessage);
-        console.log(JSON.stringify(assistantMessage, null, 2));
-
-        if (assistantMessage.tool_calls) {
-            for (const toolCall of assistantMessage.tool_calls) {
-                const tool = registry[toolCall.function.name];
-                if (!tool) {
-                    messages.push({ role: "tool", content: `Error: tool "${toolCall.function.name}" not found`, tool_call_id: toolCall.id });
-                    continue;
-                }
-
-                let tool_result: string;
-                try {
-                    tool_result = await tool.run(JSON.parse(toolCall.function.arguments));
-                } catch (error) {
-                    tool_result = `Error running tool ${toolCall.function.name}: ${error instanceof Error ? error.message : String(error)}`;
-                }
-                messages.push({role: "tool", content: tool_result, tool_call_id: toolCall.id});
-            }
-        }
-        else {
-            return assistantMessage;
-        }
-    }
-}
+import type { ProviderInput, Provider } from "./providers/types.js";
 
 export async function runTurnStream(
-    messages: ChatMessage[], 
-    signal?: AbortSignal,
-    onEvent?: (event: SessionEvent) => Promise<void>
-): Promise<AssistantMessage> {
+    input: ProviderInput, 
+    LLMProvider: Provider,
+    onEvent?: (event: SessionEvent) => Promise<void>,
+    renderContent: boolean = false 
+): Promise<ProviderInput> {
     while (true) {
         let completeContent = "";
         let completeReasoningContent = "";
         let finishReason: "stop" | "length" | "tool_calls" | "content_filter" | null = null;
         const toolCalls: Map<string, {id: string, name: string, arguments: string}> = new Map();
-        for await (const event of chatStream(messages, signal)) {
+        for await (const event of LLMProvider.stream(input)) {
             // yield event;
             if (event.type === "text-delta") {
                 completeContent += event.text;
@@ -65,7 +37,9 @@ export async function runTurnStream(
             if (event.type === "done") {
                 finishReason = event.finish_reason;
             }
-            printLLMStreamEvent(event);
+            if (renderContent) {
+                printLLMStreamEvent(event);
+            }
         }
         const tool_calls = Array.from(toolCalls.values()).map(toolCall => ({
             id: toolCall.id,
@@ -96,7 +70,7 @@ export async function runTurnStream(
                 finish_reason: finishReason,
             };
         }
-        messages.push(assistantMessage);
+        input.messages.push(assistantMessage);
         await onEvent?.({
             type: "assistant_message",
             content: assistantMessage.content,
@@ -111,7 +85,7 @@ export async function runTurnStream(
             for (const toolCall of assistantMessage.tool_calls) {
                 const tool = registry[toolCall.function.name];
                 if (!tool) {
-                    messages.push({ role: "tool", content: `Error: tool "${toolCall.function.name}" not found`, tool_call_id: toolCall.id });
+                    input.messages.push({ role: "tool", content: `Error: tool "${toolCall.function.name}" not found`, tool_call_id: toolCall.id });
                     continue;
                 }
 
@@ -122,7 +96,7 @@ export async function runTurnStream(
                 } catch (error) {
                     tool_result = `Error running tool ${toolCall.function.name}: ${error instanceof Error ? error.message : String(error)}`;
                 }
-                messages.push({role: "tool", content: tool_result, tool_call_id: toolCall.id});
+                input.messages.push({role: "tool", content: tool_result, tool_call_id: toolCall.id});
                 await onEvent?.({
                     type: "tool_result",
                     tool_call_id: toolCall.id,
@@ -131,6 +105,6 @@ export async function runTurnStream(
                 } as SessionEvent);
             }
         }
-        else return assistantMessage;
+        else return input;
     }
 }
