@@ -96,7 +96,7 @@ export function eventsToMessages(events: SessionEvent[]): ChatMessage[] {
             messages.push({ role: "tool", content: event.content, tool_call_id: event.tool_call_id });
         } else if (event.type === "summary") {
             messages = [];
-            messages.push({ role: "system", content: `The following is a summary of the conversation: ${event.content}` });
+            messages.push({ role: "system", content: `${event.content}` });
         }
     }
     return messages;

@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import type { ChatMessage } from "./llm.js";
 import { registerTool, type Tool } from "./tools.js";
 import { eventsToMessages, SessionManager } from "./session.js";
+import { ifTooLong, compressMessages } from "./compress.js";
 
 
 
@@ -100,8 +101,22 @@ async function main() {
         process.exit(0);
     }
 
-    // --resume <id>
-    if (process.argv.includes("--resume")) {
+    // fork <id>
+    if (process.argv.includes("fork")) {
+        const forkId = process.argv[process.argv.indexOf("fork") + 1];
+        if (!forkId) {
+            console.error("Error: fork requires a session ID");
+            process.exit(1);
+        }
+        const events = await sessionManager.load(forkId);
+        sessionId = (await sessionManager.create()).id;
+        for (const event of events) {
+            await sessionManager.append(sessionId, event);
+        }
+
+        messages = eventsToMessages(events);
+        console.log(`\x1b[90m[Forked from session ${forkId} -> new session ${sessionId}]\x1b[0m`);
+    } else if (process.argv.includes("--resume")) {
         const resumeId = process.argv[process.argv.indexOf("--resume") + 1];
         if (!resumeId) {
             console.error("Error: --resume requires a session ID");
@@ -110,7 +125,7 @@ async function main() {
         sessionId = resumeId;
         const events = await sessionManager.load(sessionId);
         messages = eventsToMessages(events);
-        console.log(`[Resuming session ${sessionId}, ${events.length} events loaded]`);
+        console.log(`\x1b[90m[Resuming session ${sessionId}, ${events.length} events loaded]\x1b[0m`);
     } else {
         sessionId = (await sessionManager.create()).id;
     }
@@ -135,6 +150,21 @@ async function main() {
             console.log("\x1b[34m\nGoodbye!\x1b[0m");
        
             break;
+        }
+
+        // check if the messages are too long
+        if (ifTooLong(messages)) {
+            console.log("\x1b[90m[Messages are too long, compressing...]\x1b[0m");
+            const compressUserMessages = await compressMessages(messages);
+
+            const summaryContent = compressUserMessages[0]?.content ?? "";
+            await sessionManager.append(sessionId, {
+                type: "summary",
+                content: summaryContent,
+                timestamp: new Date().toISOString()
+            });
+
+            messages = compressUserMessages;
         }
 
         messages.push({role: "user", content: userInput});

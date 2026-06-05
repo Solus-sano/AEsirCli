@@ -107,6 +107,10 @@ export function printLLMStreamEvent(event: LLMStreamEvent) {
         process.stdout.write(`\x1b[90m${event.text}\x1b[0m`);
    
     }
+    if (event.type === "usage") {
+        console.log(`\x1b[34m${JSON.stringify(event.usage, null, 2)}\x1b[0m`);
+   
+    }
     if (event.type === "done") {
         process.stdout.write(`\n`);
     }
