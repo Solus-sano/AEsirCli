@@ -1,4 +1,4 @@
-import type { ToolCall, ChatMessage } from "./llm.js";
+import type { ToolCall, ChatMessage } from "./messages.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";

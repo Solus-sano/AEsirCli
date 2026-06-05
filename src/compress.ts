@@ -1,5 +1,5 @@
-import type { ChatMessage } from "./llm.js";
-import { chatSingle } from "./llm.js";
+import type { ChatMessage } from "./messages.js";
+import { chatSingle } from "./providers/kimi-cli-compat.js";
 
 
 const NO_TOOLS_PREAMBLE = `CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.

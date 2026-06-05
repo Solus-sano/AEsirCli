@@ -6,7 +6,7 @@ import {
     eventsToMessages,
     type SessionEvent,
 } from "../src/session.js";
-import type { ChatMessage } from "../src/llm.js";
+import type { ChatMessage } from "../src/messages.js";
 
 const TS = "2026-06-04T00:00:00.000Z";
 const testFilePath = "test/tmp/test-session.jsonl";

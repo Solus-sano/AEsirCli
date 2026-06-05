@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 // import "dotenv/config";
-import {chatSingle, chatStream, runTurn, runTurnStream} from "./llm.js";
+import {runTurnStream} from "./agent.js";
 import fs from "node:fs/promises";
 import readline from "node:readline/promises";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { ChatMessage } from "./llm.js";
+import type { ChatMessage } from "./messages.js";
 import { registerTool, type Tool } from "./tools.js";
 import { eventsToMessages, SessionManager } from "./session.js";
 import { ifTooLong, compressMessages } from "./compress.js";
