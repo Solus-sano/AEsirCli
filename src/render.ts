@@ -29,7 +29,8 @@ export function printLLMStreamEvent(event: LLMEvent) {
             inThinking = false;
             process.stdout.write(`\x1b[0m\n`);
         }
-        process.stdout.write(`\x1b[2m\x1b[34m[tokens: ${event.usage.prompt_tokens} in / ${event.usage.completion_tokens} out${event.usage.cache_tokens ? ` / ${event.usage.cache_tokens} cached` : ""}]\x1b[0m\n`);
+        const cachedTokens = event.usage.cached_tokens ?? event.usage.prompt_cache_hit_tokens ?? event.usage.prompt_tokens_details?.cached_tokens ;
+        process.stdout.write(`\x1b[2m\x1b[34m[tokens: ${event.usage.prompt_tokens} in / ${event.usage.completion_tokens} out / ${cachedTokens} cached]\x1b[0m\n`);
     } else if (event.type === "done") {
         if (inThinking) {
             inThinking = false;

@@ -6,20 +6,15 @@ import type { Tool } from "../tools.js";
 
 const ANTHROPIC_VERSION = "2023-06-01";
 
-function anthropicHeaders(): Record<string, string> {
-    const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
+function anthropicHeaders(baseUrl: string, apiKey: string): Record<string, string> {
     return {
         "x-api-key": apiKey,
         "anthropic-version": ANTHROPIC_VERSION,
         "content-type": "application/json",
-        "User-Agent": (process.env.MODEL_USER_AGENT as string) ?? "Claude-Code",
-        "X-Title": "Claude-Code",
+        "User-Agent": (process.env.MODEL_USER_AGENT as string) ?? "claude-cli/2.1.108",
+        "X-Title": "claude-cli/2.1.108",
         "HTTP-Referer": "https://claude.com/code",
     };
-}
-
-function anthropicBaseUrl(): string {
-    return process.env.ANTHROPIC_BASE_URL ?? process.env.OPENAI_BASE_URL ?? "https://api.anthropic.com";
 }
 
 // ---- Anthropic wire types ----
@@ -171,11 +166,13 @@ function mapStopReason(
 
 export async function* queryLLMStream(
     postJson: unknown,
+    baseUrl: string,
+    apiKey: string,
     signal?: AbortSignal
 ): AsyncGenerator<LLMEvent> {
-    const response = await fetch(`${anthropicBaseUrl()}/v1/messages`, {
+    const response = await fetch(`${baseUrl}/v1/messages`, {
         method: "POST",
-        headers: anthropicHeaders(),
+        headers: anthropicHeaders(baseUrl, apiKey) as Record<string, string>,
         body: JSON.stringify(postJson),
         signal: signal ?? null,
     });
@@ -252,7 +249,7 @@ export async function* queryLLMStream(
                         prompt_tokens: promptTokens,
                         completion_tokens: completionTokens,
                         total_tokens: promptTokens + completionTokens,
-                        cache_tokens: cacheTokens,
+                        cached_tokens: cacheTokens,
                     },
                 };
                 yield { type: "done", finish_reason: mapStopReason(stopReason) };
@@ -267,11 +264,11 @@ export async function* queryLLMStream(
     }
 }
 
-function buildRequest(input: ProviderInput, stream: boolean) {
+function buildRequest(input: ProviderInput, provider: Provider, stream: boolean) {
     const { system, messages, tools } = toAnthropicRequest(input.messages, input.tools);
     const maxTokens = Number(process.env.MAX_TOKENS ?? 256 * 1024);
     return {
-        model: process.env.MODEL,
+        model: provider.model,
         max_tokens: maxTokens,
         stream,
         ...(system ? { system } : {}),
@@ -280,13 +277,18 @@ function buildRequest(input: ProviderInput, stream: boolean) {
     };
 }
 
-export async function* chatStreamForProvider(input: ProviderInput): AsyncGenerator<LLMEvent> {
-    const postJson = buildRequest(input, true);
-    for await (const event of queryLLMStream(postJson, input.signal)) {
+export async function* chatStreamForProvider(input: ProviderInput, provider: Provider): AsyncGenerator<LLMEvent> {
+    const postJson = buildRequest(input, provider, true);
+    for await (const event of queryLLMStream(postJson, provider.baseUrl, provider.apiKey, input.signal)) {
         yield event;
     }
 }
 
-export const AnthropicProvider: Provider = {
-    stream: chatStreamForProvider,
-};
+export function getAnthropicProvider(model: string, baseUrl: string, apiKey: string): Provider {
+    return {
+        model: model,
+        baseUrl: baseUrl,
+        apiKey: apiKey,
+        stream: chatStreamForProvider,
+    }
+}

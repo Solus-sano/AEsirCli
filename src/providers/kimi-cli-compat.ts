@@ -6,12 +6,14 @@ import type { Provider } from "./types.js";
 import type { ProviderInput } from "./types.js";
 
 
-const CodingAgentHeader = {
-    "User-Agent": process.env.MODEL_USER_AGENT as string,
-    "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+function CodingAgentHeader(baseUrl: string, apiKey: string): Record<string, string> {
+    return {
+    "User-Agent": (process.env.MODEL_USER_AGENT as string) ?? "claude-cli/2.1.108",
+    "Authorization": `Bearer ${apiKey}`,
     "X-Title": "Kimi CLI",
     "HTTP-Referer": "https://kimi.com/code",
     "Content-Type": "application/json",
+    }
 }
 
 type ChatCompletionResponse = {
@@ -53,36 +55,22 @@ type StreamChunk = {
     }[];
 }
 
-export async function queryLLM(postJson: unknown): Promise<AssistantMessage> {
-    const response = await fetch(`${process.env.OPENAI_BASE_URL}/chat/completions`, {
+
+export async function* queryLLMStream(
+    postJson: unknown, 
+    baseUrl: string,
+    apiKey: string,
+    signal?: AbortSignal,
+): AsyncGenerator<LLMEvent> {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
-        headers: CodingAgentHeader,
-        body: JSON.stringify(postJson),
-    });
-
-    if (!response.ok) {
-        throw new Error(`HTTP error: ${await response.text()}`);
-    }
-    const CompleteData = await response.json() as ChatCompletionResponse;
-
-
-    const FirstChoices = CompleteData.choices[0];
-    if (!FirstChoices) {
-        throw new Error("No message in response");
-    }
-    return FirstChoices.message as AssistantMessage;
-}
-
-export async function* queryLLMStream(postJson: unknown, signal?: AbortSignal): AsyncGenerator<LLMEvent> {
-    const response = await fetch(`${process.env.OPENAI_BASE_URL}/chat/completions`, {
-        method: "POST",
-        headers: CodingAgentHeader,
+        headers: CodingAgentHeader(baseUrl, apiKey) as Record<string, string>,
         body: JSON.stringify(postJson),
         signal: signal ?? null,
     });
 
     if (!response.ok) {
-        throw new Error(`HTTP error: ${await response.text()}`);
+        throw new Error(`HTTP error: ${response.status} - ${await response.text()}`);
     }
     // else console.log("Response OK");
     
@@ -125,25 +113,25 @@ export async function* queryLLMStream(postJson: unknown, signal?: AbortSignal): 
     
 }
 
-export async function chatSingle(messages: ChatMessage[]): Promise<AssistantMessage> {
+// export async function chatSingle(messages: ChatMessage[]): Promise<AssistantMessage> {
     
-    const tools = Object.values(registry).map(tool => ({
-        "type": "function",
-        "function": tool
-    }));
+//     const tools = Object.values(registry).map(tool => ({
+//         "type": "function",
+//         "function": tool
+//     }));
 
-    const postJson = {
-        "model": process.env.MODEL,
-        "messages": messages,
-        "stream": false,
-        // "temperature": process.env.TEMPRETURE,
-        "tools": tools
-    }
-    // console.log(JSON.stringify(postJson, null, 2));
-    return await queryLLM(postJson);
-}
+//     const postJson = {
+//         "model": process.env.MODEL,
+//         "messages": messages,
+//         "stream": false,
+//         // "temperature": process.env.TEMPRETURE,
+//         "tools": tools
+//     }
+//     // console.log(JSON.stringify(postJson, null, 2));
+//     return await queryLLM(postJson);
+// }
 
-export async function* chatStream(messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<LLMEvent> {
+export async function* chatStream(messages: ChatMessage[], baseUrl: string, apiKey: string, signal?: AbortSignal): AsyncGenerator<LLMEvent> {
     const tools = Object.values(registry).map(tool => ({
         "type": "function",
         "function": tool
@@ -156,29 +144,35 @@ export async function* chatStream(messages: ChatMessage[], signal?: AbortSignal)
         "tools": tools
     }
     
-    for await (const event of queryLLMStream(postJson, signal)) {
+    for await (const event of queryLLMStream(postJson, baseUrl, apiKey, signal)) {
         yield event;
     }
 }   
 
 
-export async function* chatStreamForProvider(input: ProviderInput): AsyncGenerator<LLMEvent> {
+export async function* chatStreamForProvider(input: ProviderInput, provider: Provider): AsyncGenerator<LLMEvent> {
     const tools = input.tools.map(tool => ({
         "type": "function",
         "function": tool
     }));
     const postJson = {
-        "model": process.env.MODEL,
+        "model": provider.model,
         "messages": input.messages,
         "stream": true,
         // "temperature": process.env.TEMPRETURE,
         "tools": tools
     }
     
-    for await (const event of queryLLMStream(postJson, input.signal)) {
+    for await (const event of queryLLMStream(postJson, provider.baseUrl, provider.apiKey, input.signal)) {
         yield event;
     }
 }
-export const KimiCLICompatProvider: Provider = {
-    stream: chatStreamForProvider,
-};  
+
+export function getKimiCLICompatProvider(model: string, baseUrl: string, apiKey: string): Provider {
+    return {
+        model: model,
+        baseUrl: baseUrl,
+        apiKey: apiKey,
+        stream: chatStreamForProvider,
+    }
+}

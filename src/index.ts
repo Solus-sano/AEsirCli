@@ -11,9 +11,10 @@ import type { ChatMessage } from "./messages.js";
 import { registerTool, registry, type Tool } from "./tools.js";
 import { eventsToMessages, SessionManager } from "./session.js";
 import { ifTooLong, compressMessages } from "./compress.js";
-import { KimiCLICompatProvider } from "./providers/kimi-cli-compat.js";
 import { resetRenderState } from "./render.js";
 import type { ProviderInput } from "./providers/types.js";
+import { resolveModel } from "./providers/registry.js";
+import { getProvider } from "./providers/registry.js";
 
 
 
@@ -95,6 +96,22 @@ async function main() {
 
     let sessionId: string;
 
+    const modelArgIndex = process.argv.indexOf("--model");
+    const modelName = modelArgIndex >= 0
+        ? process.argv[modelArgIndex + 1]
+        : process.env.MODEL;
+    if (!modelName) {
+        console.error("Error: set MODEL in .env or pass --model <name>");
+        process.exit(1);
+    }
+    if (modelArgIndex >= 0 && !process.argv[modelArgIndex + 1]) {
+        console.error("Error: --model requires a model name");
+        process.exit(1);
+    }
+
+    const modelConfig = resolveModel(modelName);
+    const LLMProvider = getProvider(modelConfig);
+
     // sessions list
     if (process.argv.includes("sessions")) {
         const sessions = await sessionManager.list();
@@ -164,7 +181,7 @@ async function main() {
                     messages: messages,
                     tools: []
                 },
-                KimiCLICompatProvider
+                LLMProvider
             );
 
             const summaryContent = compressUserMessages[0]?.content ?? "";
@@ -193,7 +210,7 @@ async function main() {
                     tools: Object.values(registry),
                     signal: signal
                 },
-                KimiCLICompatProvider,
+                LLMProvider,
                 (event) => sessionManager.append(sessionId, event),
                 true
             );
@@ -202,8 +219,10 @@ async function main() {
                 resetRenderState();
                 process.stdout.write('\n\x1b[31m[interrupted by user]\x1b[0m\n');
                 continue
+            } else {
+                console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+                continue;
             }
-            throw error;
         } finally {
             currentController = null
         }

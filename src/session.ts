@@ -150,7 +150,13 @@ export class SessionManager {
     async load(id: string): Promise<SessionEvent[]> {
         try {
             const filePath = path.join(this.sessionRootPath, id + ".jsonl");
-            return readEventsFromFile(filePath);
+            const EnvList: SessionEvent[] = await readEventsFromFile(filePath);
+            const lastEvent = EnvList[EnvList.length - 1];
+            if (lastEvent && lastEvent.type === "user_message") {
+                return EnvList.slice(0, -1);
+            } else {
+                return EnvList;
+            }
         }
         catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") {

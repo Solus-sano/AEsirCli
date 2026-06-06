@@ -11,5 +11,8 @@ export type ProviderInput = {
 };
 
 export type Provider = {
-    stream(input: ProviderInput): AsyncGenerator<LLMEvent>;
+    model: string;
+    baseUrl: string;
+    apiKey: string;
+    stream(input: ProviderInput, provider: Provider): AsyncGenerator<LLMEvent>;
 };

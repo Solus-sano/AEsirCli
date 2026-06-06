@@ -245,7 +245,7 @@ export async function compressMessages(
     let finishReason: "stop" | "length" | "tool_calls" | "content_filter" | null = null;
     const messagesWithPrompt = [...providerInput.messages, compressStarMessage];
 
-    for await (const event of LLMProvider.stream({ ...providerInput, messages: messagesWithPrompt })) {
+    for await (const event of LLMProvider.stream({ ...providerInput, messages: messagesWithPrompt }, LLMProvider)) {
         if (event.type === "text-delta") {
             completeContent += event.text;
         }

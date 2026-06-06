@@ -17,7 +17,7 @@ export async function runTurnStream(
         let completeReasoningContent = "";
         let finishReason: "stop" | "length" | "tool_calls" | "content_filter" | null = null;
         const toolCalls: Map<string, {id: string, name: string, arguments: string}> = new Map();
-        for await (const event of LLMProvider.stream(input)) {
+        for await (const event of LLMProvider.stream(input, LLMProvider)) {
             // yield event;
             if (event.type === "text-delta") {
                 completeContent += event.text;
