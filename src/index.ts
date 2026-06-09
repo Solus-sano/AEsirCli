@@ -15,80 +15,21 @@ import { resetRenderState } from "./render.js";
 import type { ProviderInput } from "./providers/types.js";
 import { resolveModel } from "./providers/registry.js";
 import { getProvider } from "./providers/registry.js";
-
-
-
+import { z } from "zod";
+import { readFilesTool } from "./tools/read-files.js";
+import { bashTool } from "./tools/bash.js";
 
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
 });
 
-async function read_file(args: unknown): Promise<string> {
-    const path = (args as { path: string }).path;
-    if (typeof path !== "string") {
-        throw new Error("Path must be a string");
-    }
-    return await fs.readFile(path, "utf-8");
-}
-
-async function bash(args: unknown): Promise<string> {
-    const command = (args as { command: string }).command;
-    const TIMEOUT_MS = 10000;
-    try {
-        const { stdout, stderr } = await promisify(exec)(command as string, {timeout: TIMEOUT_MS}); // 10 seconds timeout
-        return `[stdout]:${stdout}\n[stderr]:${stderr}`;
-    } catch (error: unknown) {
-        const e = error as {
-            killed?: boolean;
-            signal?: string;
-            stdout?: string;
-            stderr?: string;
-            message?: string;
-        }
-
-        if (e.killed && e.signal === "SIGTERM") {
-            return `Error: command timed out after ${TIMEOUT_MS / 1000}s and was killed.\n[stdout so far]:${e.stdout ?? ""}\n[stderr so far]:${e.stderr ?? ""}`;
-        }
-        return `Error: ${e.message ?? String(error)}\n[stdout]:${e.stdout ?? ""}\n[stderr]:${e.stderr ?? ""}`;
-    }
-}
-
 const tmpTool: Tool[] = [
-    {
-        name: "read_file",
-        description: "Read a file",
-        parameters: {
-            type: "object",
-            properties: {
-                path: {
-                    type: "string",
-                    description: "The path to the file to read"
-                }
-            },
-            required: ["path"]
-        },
-        run: read_file
-    },
-    {
-        name: "bash",
-        description: "Execute a bash command",
-        parameters: {
-            type: "object",
-            properties: {
-                command: {
-                    type: "string",
-                    description: "The command to execute"
-                }
-            },
-            required: ["command"]
-        },
-        run: bash
-    }
+    readFilesTool,
+    bashTool
 ]
 
 tmpTool.forEach(tool => registerTool(tool));
-
 
 async function main() {
     let messages: ChatMessage[] = [];// empty messages array

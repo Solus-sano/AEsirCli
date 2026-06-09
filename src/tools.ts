@@ -1,3 +1,4 @@
+import type { z } from "zod";
 
 
 
@@ -9,6 +10,7 @@ export type Tool = {
         properties?: unknown;
         required?: string[];
     }
+    schema: z.ZodType<any>;
     run: (args: unknown) => Promise<string>;
 }
 

@@ -1,6 +1,7 @@
 import process from "node:process";
 import { registry } from "./tools.js";
 import type { SessionEvent } from "./session.js";
+import { z } from "zod";
 
 import type { ChatMessage, AssistantMessage, ToolCall } from "./messages.js";
 import { printLLMStreamEvent, truncateToolOutput } from "./render.js";
@@ -91,10 +92,15 @@ export async function runTurnStream(
 
                 let tool_result: string;
                 try {
-                    tool_result = await tool.run(JSON.parse(toolCall.function.arguments));
+                    const parsedArgs = tool.schema.parse(JSON.parse(toolCall.function.arguments));
+                    tool_result = await tool.run(parsedArgs);
                     tool_result = truncateToolOutput(tool_result);
                 } catch (error) {
+                    if (error instanceof z.ZodError) {
+                        tool_result = `Invalid arguments for tool ${toolCall.function.name}: ${error.message}`;
+                    } else {
                     tool_result = `Error running tool ${toolCall.function.name}: ${error instanceof Error ? error.message : String(error)}`;
+                    }
                 }
                 input.messages.push({role: "tool", content: tool_result, tool_call_id: toolCall.id});
                 await onEvent?.({
