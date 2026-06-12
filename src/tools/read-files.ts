@@ -2,9 +2,11 @@ import type { Tool } from "../tools.js";
 import { z } from "zod";
 import fs from "fs/promises";
 
+import { resolveSafePath } from "./path-safety.js";
 
 async function readFile(args: unknown): Promise<string> {
     const path = (args as { path: string }).path;
+    const safePath = await resolveSafePath(path, process.cwd());
     return await fs.readFile(path, "utf-8");
 }
 

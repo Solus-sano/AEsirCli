@@ -18,6 +18,10 @@ import { getProvider } from "./providers/registry.js";
 import { z } from "zod";
 import { readFilesTool } from "./tools/read-files.js";
 import { bashTool } from "./tools/bash.js";
+import { writeFileTool } from "./tools/write-file.js";
+import { editFileTool } from "./tools/edit-file.js";
+import { globTool } from "./tools/glob.js";
+import { grepTool } from "./tools/grep.js";
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -26,7 +30,11 @@ const rl = readline.createInterface({
 
 const tmpTool: Tool[] = [
     readFilesTool,
-    bashTool
+    bashTool,
+    writeFileTool,
+    editFileTool,
+    globTool,
+    grepTool
 ]
 
 tmpTool.forEach(tool => registerTool(tool));
