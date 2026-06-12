@@ -43,5 +43,6 @@ export const bashTool: Tool = {
     schema: z.object({
         command: z.string()
     }),
+    needsConfirmation: true,
     run: bash
 }

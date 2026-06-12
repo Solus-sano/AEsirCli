@@ -64,5 +64,6 @@ export const editFileTool: Tool = {
         new_string: z.string(),
         replace_all: z.boolean().optional().default(false)
     }),
+    needsConfirmation: true,
     run: editFile
 }

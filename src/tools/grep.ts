@@ -242,5 +242,6 @@ export const grepTool: Tool = {
         hidden: z.boolean().optional().default(false),
         noIgnore: z.boolean().optional().default(false),
     }),
+    needsConfirmation: false,
     run: grep
 };

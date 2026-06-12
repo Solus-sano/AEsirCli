@@ -26,5 +26,6 @@ export const readFilesTool: Tool = {
     schema: z.object({
         path: z.string()
     }),
+    needsConfirmation: false,
     run: readFile
 }

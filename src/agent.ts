@@ -11,7 +11,8 @@ export async function runTurnStream(
     input: ProviderInput, 
     LLMProvider: Provider,
     onEvent?: (event: SessionEvent) => Promise<void>,
-    renderContent: boolean = false 
+    renderContent: boolean = false,
+    confirmToolCall?: (toolName: string, args: unknown) => Promise<boolean>
 ): Promise<ProviderInput> {
     while (true) {
         let completeContent = "";
@@ -93,8 +94,18 @@ export async function runTurnStream(
                 let tool_result: string;
                 try {
                     const parsedArgs = tool.schema.parse(JSON.parse(toolCall.function.arguments));
-                    tool_result = await tool.run(parsedArgs);
-                    tool_result = truncateToolOutput(tool_result);
+                    if (tool.needsConfirmation && confirmToolCall) {
+                        const confirmed = await confirmToolCall(tool.name, parsedArgs);
+                        if (!confirmed) {
+                            tool_result = "Tool call denied by user";
+                        } else {
+                            tool_result = await tool.run(parsedArgs);
+                            tool_result = truncateToolOutput(tool_result);
+                        }
+                    } else {
+                        tool_result = await tool.run(parsedArgs);
+                        tool_result = truncateToolOutput(tool_result);
+                    }
                 } catch (error) {
                     if (error instanceof z.ZodError) {
                         tool_result = `Invalid arguments for tool ${toolCall.function.name}: ${error.message}`;

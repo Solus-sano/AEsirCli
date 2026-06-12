@@ -22,11 +22,26 @@ import { writeFileTool } from "./tools/write-file.js";
 import { editFileTool } from "./tools/edit-file.js";
 import { globTool } from "./tools/glob.js";
 import { grepTool } from "./tools/grep.js";
+import { loadProjectContext } from "./context-loader.js";
 
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
 });
+
+const yoloMode = process.argv.includes("--yolo");
+
+async function confirmToolCall(toolName: string, args: unknown): Promise<boolean> {
+    if (yoloMode) {
+        return true;
+    }
+
+    const argsText = JSON.stringify(args, null, 2);
+    const answer = await rl.question(
+        `\x1b[33mAllow tool call ${toolName} with arguments:\n${argsText}\nProceed? [y/N]\x1b[0m `
+    );
+    return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
+}
 
 const tmpTool: Tool[] = [
     readFilesTool,
@@ -40,6 +55,10 @@ const tmpTool: Tool[] = [
 tmpTool.forEach(tool => registerTool(tool));
 
 async function main() {
+    if (yoloMode) {
+        console.warn("\x1b[31m⚠ Running in yolo mode — all tool calls will be auto-approved\x1b[0m");
+    }
+
     let messages: ChatMessage[] = [];// empty messages array
     const sessionManager = new SessionManager();
 
@@ -98,6 +117,16 @@ async function main() {
         console.log(`\x1b[90m[Resuming session ${sessionId}, ${events.length} events loaded]\x1b[0m`);
     } else {
         sessionId = (await sessionManager.create()).id;
+        const projectContext = await loadProjectContext(process.cwd());
+        if (projectContext) {
+            messages.unshift({ role: "system", content: projectContext });
+            await sessionManager.append(sessionId, {
+                type: "system_message",
+                content: projectContext,
+                timestamp: new Date().toISOString()
+            });
+            console.log("[Loaded project context from CLAUDE.md]");
+        }
     }
 
     let currentController: AbortController | null = null;
@@ -161,7 +190,8 @@ async function main() {
                 },
                 LLMProvider,
                 (event) => sessionManager.append(sessionId, event),
-                true
+                true,
+                confirmToolCall
             );
         } catch (error) {
             if (error instanceof DOMException && error.name === "AbortError") {

@@ -43,7 +43,13 @@ export type SummaryEvent = {
     timestamp: string; // ISO 8601
 }
 
-export type SessionEvent = UserMessageEvent | AssistantMessageEvent | ToolResultEvent | SummaryEvent;
+export type SystemMessageEvent = {
+    type: "system_message";
+    content: string;
+    timestamp: string; // ISO 8601
+}
+
+export type SessionEvent = UserMessageEvent | AssistantMessageEvent | ToolResultEvent | SummaryEvent | SystemMessageEvent;
 
 
 export async function appendEventToFile(filePath: string, event: SessionEvent): Promise<void> {
@@ -73,7 +79,9 @@ export async function readEventsFromFile(filePath: string): Promise<SessionEvent
 export function eventsToMessages(events: SessionEvent[]): ChatMessage[] {
     let messages: ChatMessage[] = [];
     for (const event of events) {
-        if (event.type === "user_message") {
+        if (event.type === "system_message") {
+            messages.push({ role: "system", content: event.content });
+        } else if (event.type === "user_message") {
             messages.push({ role: "user", content: event.content });
         } else if (event.type === "assistant_message") {
             if (event.tool_calls) {

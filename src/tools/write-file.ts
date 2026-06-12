@@ -40,5 +40,6 @@ export const writeFileTool: Tool = {
         path: z.string(),
         content: z.string()
     }),
+    needsConfirmation: true,
     run: writeFile
 }

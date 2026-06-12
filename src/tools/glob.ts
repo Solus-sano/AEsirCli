@@ -64,5 +64,6 @@ export const globTool: Tool = {
         dot: z.boolean().optional().default(true),
         onlyFiles: z.boolean().optional().default(true)
     }),
+    needsConfirmation: false,
     run: glob
 }

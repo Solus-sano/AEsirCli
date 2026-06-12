@@ -11,6 +11,7 @@ export type Tool = {
         required?: string[];
     }
     schema: z.ZodType<any>;
+    needsConfirmation: boolean;
     run: (args: unknown) => Promise<string>;
 }
 
