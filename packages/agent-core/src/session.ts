@@ -1,7 +1,6 @@
-import type { ToolCall, ChatMessage } from "./messages.js";
+import type { ToolCall, ChatMessage } from "@aesir/ai";
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 
 
@@ -104,7 +103,7 @@ export function eventsToMessages(events: SessionEvent[]): ChatMessage[] {
             messages.push({ role: "tool", content: event.content, tool_call_id: event.tool_call_id });
         } else if (event.type === "summary") {
             messages = [];
-            messages.push({ role: "system", content: `${event.content}` });
+            messages.push({ role: "system", content: `The following is a summary of the conversation: ${event.content}` });
         }
     }
     return messages;

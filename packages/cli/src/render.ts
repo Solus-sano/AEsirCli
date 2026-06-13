@@ -1,4 +1,4 @@
-import type { LLMEvent } from "./events.js";
+import type { LLMEvent } from "@aesir/ai";
 
 const MAX_TOOL_OUTPUT_LENGTH = 2 * 1024;
 

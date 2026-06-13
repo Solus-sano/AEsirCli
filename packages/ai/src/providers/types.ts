@@ -1,12 +1,10 @@
-import type { Tool } from "../tools.js";
+import type { ToolSpec } from "../tools.js";
 import type { ChatMessage } from "../messages.js";
 import type { LLMEvent } from "../events.js";
 
-
-
 export type ProviderInput = {
     messages: ChatMessage[];
-    tools: Tool[];
+    tools: ToolSpec[];
     signal?: AbortSignal;
 };
 

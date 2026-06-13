@@ -1,15 +1,7 @@
 import type { z } from "zod";
+import type { ToolSpec } from "@aesir/ai";
 
-
-
-export type Tool = {
-    name: string;
-    description: string;
-    parameters: {
-        type: "object";
-        properties?: unknown;
-        required?: string[];
-    }
+export type Tool = ToolSpec & {
     schema: z.ZodType<any>;
     needsConfirmation: boolean;
     run: (args: unknown) => Promise<string>;

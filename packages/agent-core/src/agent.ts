@@ -3,16 +3,46 @@ import { registry } from "./tools.js";
 import type { SessionEvent } from "./session.js";
 import { z } from "zod";
 
-import type { ChatMessage, AssistantMessage, ToolCall } from "./messages.js";
-import { printLLMStreamEvent, truncateToolOutput } from "./render.js";
-import type { ProviderInput, Provider } from "./providers/types.js";
+import type { ChatMessage, AssistantMessage, ToolCall, LLMEvent } from "@aesir/ai";
+import type { ProviderInput, Provider } from "@aesir/ai";
 
+export type RenderFn = (event: LLMEvent) => void;
+export type TruncateFn = (output: string) => string;
+
+const DEFAULT_MAX_TOOL_OUTPUT = 2 * 1024;
+
+function defaultTruncate(output: string): string {
+    if (output.length > DEFAULT_MAX_TOOL_OUTPUT) {
+        return output.substring(0, DEFAULT_MAX_TOOL_OUTPUT) + `\n[Output truncated, total length: ${output.length}]`;
+    }
+    return output;
+}
+
+/**
+ * 
+ * @description 
+ * This function is used to run a agent loop.
+ * It will stream the events from the LLM provider and emit the events to the onEvent callback.
+ * It will also render the events to the console.
+ * It will also truncate the tool output if it is too long.
+ * It will also confirm the tool call if it is needed.
+ * It will also run the tool if it is needed.
+ * It will also return the input messages.
+ * @param input 
+ * @param LLMProvider 
+ * @param onEvent 
+ * @param renderFn 
+ * @param confirmToolCall 
+ * @param truncateFn 
+ * @returns 
+ */
 export async function runTurnStream(
     input: ProviderInput, 
     LLMProvider: Provider,
     onEvent?: (event: SessionEvent) => Promise<void>,
-    renderContent: boolean = false,
-    confirmToolCall?: (toolName: string, args: unknown) => Promise<boolean>
+    renderFn?: RenderFn,
+    confirmToolCall?: (toolName: string, args: unknown) => Promise<boolean>,
+    truncateFn: TruncateFn = defaultTruncate,
 ): Promise<ProviderInput> {
     while (true) {
         let completeContent = "";
@@ -39,8 +69,8 @@ export async function runTurnStream(
             if (event.type === "done") {
                 finishReason = event.finish_reason;
             }
-            if (renderContent) {
-                printLLMStreamEvent(event);
+            if (renderFn) {
+                renderFn(event);
             }
         }
         const tool_calls = Array.from(toolCalls.values()).map(toolCall => ({
@@ -100,17 +130,17 @@ export async function runTurnStream(
                             tool_result = "Tool call denied by user";
                         } else {
                             tool_result = await tool.run(parsedArgs);
-                            tool_result = truncateToolOutput(tool_result);
+                            tool_result = truncateFn(tool_result);
                         }
                     } else {
                         tool_result = await tool.run(parsedArgs);
-                        tool_result = truncateToolOutput(tool_result);
+                        tool_result = truncateFn(tool_result);
                     }
-                } catch (error) {
+                } catch (error: unknown) {
                     if (error instanceof z.ZodError) {
                         tool_result = `Invalid arguments for tool ${toolCall.function.name}: ${error.message}`;
                     } else {
-                    tool_result = `Error running tool ${toolCall.function.name}: ${error instanceof Error ? error.message : String(error)}`;
+                        tool_result = `Error running tool ${toolCall.function.name}: ${error instanceof Error ? error.message : String(error)}`;
                     }
                 }
                 input.messages.push({role: "tool", content: tool_result, tool_call_id: toolCall.id});

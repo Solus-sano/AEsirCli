@@ -163,6 +163,10 @@ function messageText(msg: ChatMessage): string {
             }
             return parts.join("\n");
         }
+        default: {
+            const _exhaustive: never = msg;
+            return "";
+        }
     }
 }
 

@@ -1,28 +1,25 @@
 #!/usr/bin/env node
 
-// import "dotenv/config";
-import {runTurnStream} from "./agent.js";
-import fs from "node:fs/promises";
 import readline from "node:readline/promises";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
 
-import type { ChatMessage } from "./messages.js";
-import { registerTool, registry, type Tool } from "./tools.js";
-import { eventsToMessages, SessionManager } from "./session.js";
-import { ifTooLong, compressMessages } from "./compress.js";
-import { resetRenderState } from "./render.js";
-import type { ProviderInput } from "./providers/types.js";
-import { resolveModel } from "./providers/registry.js";
-import { getProvider } from "./providers/registry.js";
-import { z } from "zod";
-import { readFilesTool } from "./tools/read-files.js";
-import { bashTool } from "./tools/bash.js";
-import { writeFileTool } from "./tools/write-file.js";
-import { editFileTool } from "./tools/edit-file.js";
-import { globTool } from "./tools/glob.js";
-import { grepTool } from "./tools/grep.js";
-import { loadProjectContext } from "./context-loader.js";
+import type { ChatMessage } from "@aesir/ai";
+import { resolveModel, getProvider, ifTooLong, compressMessages } from "@aesir/ai";
+import {
+    runTurnStream,
+    registerTool,
+    registry,
+    eventsToMessages,
+    SessionManager,
+    loadProjectContext,
+    readFilesTool,
+    bashTool,
+    writeFileTool,
+    editFileTool,
+    globTool,
+    grepTool,
+    type Tool,
+} from "@aesir/agent-core";
+import { printLLMStreamEvent, resetRenderState } from "./render.js";
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -190,8 +187,8 @@ async function main() {
                 },
                 LLMProvider,
                 (event) => sessionManager.append(sessionId, event),
-                true,
-                confirmToolCall
+                printLLMStreamEvent,
+                confirmToolCall,
             );
         } catch (error) {
             if (error instanceof DOMException && error.name === "AbortError") {

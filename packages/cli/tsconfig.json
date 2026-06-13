@@ -4,6 +4,8 @@
     "target": "esnext",
     "strict": true,
     "noEmit": true,
+    "rootDir": ".",
+    "outDir": "./dist",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -11,14 +13,7 @@
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "types": ["node"],
-
-    "paths": {
-      "@aesir/ai": ["./packages/ai/src/index.ts"],
-      "@aesir/agent-core": ["./packages/agent-core/src/index.ts"],
-      "@aesir/cli": ["./packages/cli/src/index.ts"]
-    }
+    "types": ["node"]
   },
-  "include": ["packages/*/src/**/*"],
-  "exclude": ["**/dist/**", "**/node_modules/**"]
+  "include": ["src/**/*", "test/**/*"]
 }

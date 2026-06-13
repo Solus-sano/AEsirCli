@@ -1,9 +1,7 @@
-import { type ChatMessage, type AssistantMessage } from "../messages.js";
-import { registry } from "../tools.js";
+import type { ChatMessage, AssistantMessage } from "../messages.js";
 import { parseSSE } from "../sse.js";
-import { type LLMEvent } from "../events.js";
-import type { Provider } from "./types.js";
-import type { ProviderInput } from "./types.js";
+import type { LLMEvent } from "../events.js";
+import type { Provider, ProviderInput } from "./types.js";
 
 
 function CodingAgentHeader(baseUrl: string, apiKey: string): Record<string, string> {
@@ -112,43 +110,6 @@ export async function* queryLLMStream(
     }
     
 }
-
-// export async function chatSingle(messages: ChatMessage[]): Promise<AssistantMessage> {
-    
-//     const tools = Object.values(registry).map(tool => ({
-//         "type": "function",
-//         "function": tool
-//     }));
-
-//     const postJson = {
-//         "model": process.env.MODEL,
-//         "messages": messages,
-//         "stream": false,
-//         // "temperature": process.env.TEMPRETURE,
-//         "tools": tools
-//     }
-//     // console.log(JSON.stringify(postJson, null, 2));
-//     return await queryLLM(postJson);
-// }
-
-export async function* chatStream(messages: ChatMessage[], baseUrl: string, apiKey: string, signal?: AbortSignal): AsyncGenerator<LLMEvent> {
-    const tools = Object.values(registry).map(tool => ({
-        "type": "function",
-        "function": tool
-    }));
-    const postJson = {
-        "model": process.env.MODEL,
-        "messages": messages,
-        "stream": true,
-        // "temperature": process.env.TEMPRETURE,
-        "tools": tools
-    }
-    
-    for await (const event of queryLLMStream(postJson, baseUrl, apiKey, signal)) {
-        yield event;
-    }
-}   
-
 
 export async function* chatStreamForProvider(input: ProviderInput, provider: Provider): AsyncGenerator<LLMEvent> {
     const tools = input.tools.map(tool => ({

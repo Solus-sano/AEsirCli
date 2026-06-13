@@ -1,8 +1,8 @@
-import { type ChatMessage } from "../messages.js";
+import type { ChatMessage } from "../messages.js";
 import { parseSSE } from "../sse.js";
-import { type LLMEvent } from "../events.js";
+import type { LLMEvent } from "../events.js";
 import type { Provider, ProviderInput } from "./types.js";
-import type { Tool } from "../tools.js";
+import type { ToolSpec } from "../tools.js";
 
 const ANTHROPIC_VERSION = "2023-06-01";
 
@@ -74,7 +74,7 @@ type AnthropicStreamEvent =
 
 // ---- Conversion: internal ChatMessage[] -> Anthropic system + messages ----
 
-function toAnthropicRequest(messages: ChatMessage[], tools: Tool[]): {
+function toAnthropicRequest(messages: ChatMessage[], tools: ToolSpec[]): {
     system: string | undefined;
     messages: AnthropicMessage[];
     tools: AnthropicTool[];
