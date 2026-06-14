@@ -7,11 +7,13 @@
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "import": "./src/index.ts"
+      "import": "./dist/index.js"
     }
   },
   "scripts": {
-    "test": "tsx --test \"test/**/*.test.ts\""
+    "test": "tsx --test \"test/**/*.test.ts\"",
+    "build": "tsup src/index.ts --format esm --target node20 --clean",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@aesir/ai": "workspace:*",
