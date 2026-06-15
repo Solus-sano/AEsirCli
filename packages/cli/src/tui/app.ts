@@ -1,0 +1,310 @@
+import { Screen } from "./screen.js";
+import { Editor } from "./editor.js";
+import { stripAnsi, visibleWidth } from "./utils.js";
+import type { ChatMessage, LLMEvent, Provider } from "@aesir/ai";
+import { SessionManager } from "@aesir/agent-core";
+
+const INPUT_HEIGHT = 3;
+const STATUS_HEIGHT = 1;
+const SEPARATOR_HEIGHT = 1;
+// const ENTER_ALTERNATE_SCREEN = "\x1b[?1049h";
+// const EXIT_ALTERNATE_SCREEN = "\x1b[?1049l";
+const CLEAR_SCREEN = "\x1b[2J\x1b[H";
+const HIDE_CURSOR = "\x1b[?25l";
+const SHOW_CURSOR = "\x1b[?25h";
+
+export class TUIApp {
+    private screen: Screen;
+    private editor: Editor;
+    private conversationMessages: ChatMessage[] = [];
+    private conversationLines: string[] = [];
+    private sessionManager: SessionManager;
+    private sessionId: string;
+    private LLMProvider: Provider;
+    private modelName: string;
+    private inThinking = false;
+    private scrollOffset = 0;
+    private stopped = false;
+    private pendingToolArgs = "";
+    private pendingToolName = "";
+
+    constructor(
+        screen: Screen, 
+        tmpSessionManager: SessionManager, 
+        sessionId: string,
+        LLMProvider: Provider,
+        options?: {
+            modelName?: string;
+            onUserMessage?: (
+                messages: ChatMessage[], 
+                sessionManager: SessionManager, 
+                sessionId: string, 
+                LLMProvider: Provider,
+                renderFn: (event: LLMEvent) => void
+            ) => Promise<void> | void;
+        }
+    ) {
+        this.screen = screen;
+        this.sessionManager = tmpSessionManager;
+        this.sessionId = sessionId;
+        this.LLMProvider = LLMProvider;
+        this.modelName = options?.modelName ?? "unknown";
+        const onUserMessage = options?.onUserMessage;
+
+        this.editor = new Editor(
+            (text) => {
+                this.conversationLines.push(`\x1b[36m> ${text}\x1b[0m`);
+                this.conversationLines.push("");
+                this.conversationMessages.push({ role: "user", content: text });
+                this.scrollToBottom();
+                this.render();
+                const p = onUserMessage?.(
+                    this.conversationMessages,
+                    this.sessionManager,
+                    this.sessionId,
+                    this.LLMProvider,
+                    this.tuiRenderLLMStreamEvent
+                );
+                if (p instanceof Promise) {
+                    p.catch((err: unknown) => {
+                        this.appendStreamingText(`\x1b[31mError: ${err instanceof Error ? err.message : String(err)}\x1b[0m\n`);
+                    });
+                }
+            }
+        );
+    }
+
+    handleInput(text: string): void {
+        if (text === "\x1b[5~") {
+            this.scrollUp();
+            return;
+        }
+        if (text === "\x1b[6~") {
+            this.scrollDown();
+            return;
+        }
+        this.editor.handleInput(text);
+    }
+
+    start(): void {
+        process.stdin.setRawMode(true);
+        process.stdin.resume();
+        process.stdout.write(`${CLEAR_SCREEN}${HIDE_CURSOR}`);
+        this.render();
+
+        process.stdin.on('data', (data) => {
+            const key = data.toString();
+            if (key === "\x03") {
+                this.stop();
+                process.exit(0);
+            }
+            this.handleInput(key);
+            this.render();
+        });
+
+        process.stdout.on("resize", () => {
+            this.screen.invalidate();
+            this.render();
+        });
+
+        process.on("exit", () => this.stop());
+        process.on("uncaughtException", (err) => {
+            this.stop();
+            console.error(err);
+            process.exit(1);
+        });
+    }
+
+    stop(): void {
+        if (this.stopped) return;
+        this.stopped = true;
+        process.stdout.write(`\x1b[0m${SHOW_CURSOR}`);
+        process.stdin.setRawMode(false);
+        process.stdin.pause();
+    }
+
+    private scrollUp(): void {
+        const chatHeight = this.getChatHeight();
+        const maxOffset = Math.max(0, this.conversationLines.length - chatHeight);
+        this.scrollOffset = Math.min(this.scrollOffset + 5, maxOffset);
+    }
+
+    private scrollDown(): void {
+        this.scrollOffset = Math.max(0, this.scrollOffset - 5);
+    }
+
+    private scrollToBottom(): void {
+        this.scrollOffset = 0;
+    }
+
+    private getChatHeight(): number {
+        return process.stdout.rows - INPUT_HEIGHT - STATUS_HEIGHT - SEPARATOR_HEIGHT;
+    }
+
+    private getChatLines(chatHeight: number): string[] {
+        const totalLines = this.conversationLines.length;
+        const end = totalLines - this.scrollOffset;
+        const start = Math.max(0, end - chatHeight);
+        const visible = this.conversationLines.slice(start, end);
+
+        while (visible.length < chatHeight) {
+            visible.unshift("");
+        }
+        return visible;
+    }
+
+    private getStatusLine(cols: number): string {
+        const model = `\x1b[34m[${this.modelName}]\x1b[0m`;
+        const scrollInfo = this.scrollOffset > 0
+            ? `\x1b[33m [↑${this.scrollOffset}]\x1b[0m`
+            : "";
+        const hint = `\x1b[90mEnter:send | Shift+Enter:newline | PgUp/PgDn:scroll | Ctrl+C:exit\x1b[0m`;
+        return ` ${model}${scrollInfo}  ${hint}`;
+    }
+
+    render(): void {
+        const rows = process.stdout.rows;
+        const cols = process.stdout.columns;
+        const chatHeight = this.getChatHeight();
+
+        const chatLines = this.getChatLines(chatHeight);
+        const truncatedChat = chatLines.map(line => this.truncateLine(line, cols));
+        const separator = ["─".repeat(cols)];
+        const editorLines = this.padLines(this.editor.render(cols), INPUT_HEIGHT);
+        const statusLine = [this.truncateLine(this.getStatusLine(cols), cols)];
+
+        const frameLines = [...truncatedChat, ...separator, ...editorLines, ...statusLine];
+        this.screen.render(frameLines);
+    }
+
+    private truncateLine(line: string, maxCols: number): string {
+        if (visibleWidth(line) <= maxCols) return line;
+
+        const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
+        let result = "";
+        let width = 0;
+        let lastIndex = 0;
+
+        // Walk through the string, preserving all ANSI sequences and
+        // counting only visible characters toward the width limit.
+        ANSI_RE.lastIndex = 0;
+        let match: RegExpExecArray | null;
+
+        while (lastIndex < line.length) {
+            match = ANSI_RE.exec(line);
+
+            const nextAnsiStart = match ? match.index : line.length;
+
+            // Process visible characters before the next ANSI sequence
+            for (let i = lastIndex; i < nextAnsiStart; i++) {
+                const code = line.codePointAt(i)!;
+                const charStr = String.fromCodePoint(code);
+                const cw = code > 0xffff ? 2 :
+                    ((code >= 0x1100 && code <= 0x115f) ||
+                    (code >= 0x2e80 && code <= 0xa4cf) ||
+                    (code >= 0xac00 && code <= 0xd7af) ||
+                    (code >= 0xf900 && code <= 0xfaff) ||
+                    (code >= 0xfe30 && code <= 0xfe6f) ||
+                    (code >= 0xff01 && code <= 0xff60) ||
+                    (code >= 0xffe0 && code <= 0xffe6)) ? 2 : 1;
+
+                if (width + cw > maxCols - 1) {
+                    return result + "\x1b[0m…";
+                }
+                width += cw;
+                result += charStr;
+                // Skip low surrogate if code point is above BMP
+                if (code > 0xffff) i++;
+            }
+
+            // Append the ANSI sequence itself (zero width)
+            if (match) {
+                result += match[0];
+                lastIndex = ANSI_RE.lastIndex;
+            } else {
+                break;
+            }
+        }
+
+        return result + "\x1b[0m";
+    }
+
+    private padLines(lines: string[], targetHeight: number): string[] {
+        const result = lines.slice(0, targetHeight);
+        while (result.length < targetHeight) {
+            result.push("");
+        }
+        return result;
+    }
+
+    // 流式输出时，逐字追加到 conversationLines 最后一行
+    appendStreamingText(text: string): void {
+        const parts = text.split("\n");
+        for (let i = 0; i < parts.length; i++) {
+            if (i === 0) {
+                // 追加到最后一行
+                this.conversationLines[this.conversationLines.length - 1] += parts[i]!;
+            } else {
+                // 换行 → 新增一行
+                this.conversationLines.push(parts[i]!);
+            }
+        }
+        this.render();
+    }
+
+    private endThinking(): void {
+        if (this.inThinking) {
+            this.inThinking = false;
+            this.appendStreamingText(`\x1b[0m\n`);
+        }
+    }
+
+    private flushPendingTool(): void {
+        if (this.pendingToolName) {
+            let argSummary = "";
+            try {
+                const parsed = JSON.parse(this.pendingToolArgs);
+                // Show a compact version of the args
+                if (parsed.command) argSummary = parsed.command;
+                else if (parsed.pattern) argSummary = parsed.pattern;
+                else if (parsed.path) argSummary = parsed.path;
+                else argSummary = this.pendingToolArgs.slice(0, 60);
+            } catch {
+                argSummary = this.pendingToolArgs.slice(0, 60);
+            }
+            this.appendStreamingText(`\x1b[90m⚙ ${this.pendingToolName}: ${argSummary}\x1b[0m\n`);
+            this.pendingToolName = "";
+            this.pendingToolArgs = "";
+        }
+    }
+
+    tuiRenderLLMStreamEvent = (event: LLMEvent) => {
+        if (event.type === "reasoning-delta") {
+            if (!this.inThinking) {
+                this.inThinking = true;
+                this.appendStreamingText(`\x1b[2m\x1b[36m❯ thinking...\n`);
+            }
+            this.appendStreamingText(event.text);
+        } else if (event.type === "text-delta") {
+            this.endThinking();
+            this.flushPendingTool();
+            this.appendStreamingText(event.text);
+        } else if (event.type === "tool-call-start") {
+            this.endThinking();
+            this.flushPendingTool();
+            this.pendingToolName = event.name;
+            this.pendingToolArgs = "";
+        } else if (event.type === "tool-call-delta") {
+            this.pendingToolArgs += event.argDelta;
+        } else if (event.type === "usage") {
+            this.endThinking();
+            this.flushPendingTool();
+            const cachedTokens = event.usage.cached_tokens ?? event.usage.prompt_cache_hit_tokens ?? event.usage.prompt_tokens_details?.cached_tokens;
+            this.appendStreamingText(`\x1b[2m\x1b[34m[tokens: ${event.usage.prompt_tokens} in / ${event.usage.completion_tokens} out / ${cachedTokens} cached]\x1b[0m\n`);
+        } else if (event.type === "done") {
+            this.endThinking();
+            this.flushPendingTool();
+            this.appendStreamingText(`\n`);
+        }
+    }
+}

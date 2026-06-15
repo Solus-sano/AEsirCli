@@ -90,9 +90,7 @@ export async function runTurnStream(
                 tool_calls: tool_calls,
                 finish_reason: finishReason,
             };
-            for (const toolCall of tool_calls) {
-                process.stdout.write(`\x1b[90mUse tool: ${toolCall.function.name} with arguments: ${toolCall.function.arguments}\n\x1b[0m`);
-            }
+            // tool call info is rendered via renderFn (tool-call-start events)
         }
         else {
             assistantMessage = {

@@ -24,12 +24,18 @@ export function printLLMStreamEvent(event: LLMEvent) {
             process.stdout.write(`\x1b[0m\n`);
         }
         process.stdout.write(`\x1b[32m${event.text}\x1b[0m`);
+    } else if (event.type === "tool-call-start") {
+        if (inThinking) {
+            inThinking = false;
+            process.stdout.write(`\x1b[0m\n`);
+        }
+        process.stdout.write(`\x1b[90m⚙ Use tool: ${event.name}\x1b[0m\n`);
     } else if (event.type === "usage") {
         if (inThinking) {
             inThinking = false;
             process.stdout.write(`\x1b[0m\n`);
         }
-        const cachedTokens = event.usage.cached_tokens ?? event.usage.prompt_cache_hit_tokens ?? event.usage.prompt_tokens_details?.cached_tokens ;
+        const cachedTokens = event.usage.cached_tokens ?? event.usage.prompt_cache_hit_tokens ?? event.usage.prompt_tokens_details?.cached_tokens;
         process.stdout.write(`\x1b[2m\x1b[34m[tokens: ${event.usage.prompt_tokens} in / ${event.usage.completion_tokens} out / ${cachedTokens} cached]\x1b[0m\n`);
     } else if (event.type === "done") {
         if (inThinking) {

@@ -8,16 +8,21 @@ export class Editor {
         this.clear();
     }
 
+    /**
+     * 渲染编辑器
+     * @param width 宽度
+     * @returns 渲染后的行
+     */
     render(width: number): string[] {
         return this.lines.map((line, index) => {
+            const prefix = index === 0 ? "\x1b[32m> \x1b[0m" : "  ";
             if (index === this.cursorRow) {
-                // 反色显示光标位置
                 const before = line.slice(0, this.cursorCol);
                 const cursor = line[this.cursorCol] ?? " ";
                 const after = line.slice(this.cursorCol + 1);
-                return `${before}\x1b[7m${cursor}\x1b[0m${after}`;
+                return `${prefix}${before}\x1b[7m${cursor}\x1b[0m${after}`;
             }
-            return line;
+            return `${prefix}${line}`;
         });
     }
 
@@ -67,11 +72,16 @@ export class Editor {
     }
 
     private moveRight(): void {
-        this.cursorCol++;
+        const lineLen = (this.lines[this.cursorRow] ?? "").length;
+        if (this.cursorCol < lineLen) {
+            this.cursorCol++;
+        }
     }
 
     private moveLeft(): void {
-        this.cursorCol--;
+        if (this.cursorCol > 0) {
+            this.cursorCol--;
+        }
     }
 
     private insertNewLine(): void {

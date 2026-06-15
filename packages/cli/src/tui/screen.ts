@@ -10,13 +10,15 @@ export class Screen {
         this.height = process.stdout.rows;
     }
 
+    invalidate(): void {
+        this.prevLines = [];
+    }
+
     render(lines: string[]): void {
-        /**
-         * 逐行对比 lines vs prevLines
-         * 不同的行 → write("\x1b[{row};1H{content}\x1b[K")
-         * 新帧比旧帧短 → 多出的旧行清空
-         * 保存 prevLines = [...lines]
-         */
+        this.width = process.stdout.columns;
+        this.height = process.stdout.rows;
+        this.invalidate(); //bug
+
         for (let i = 0; i < lines.length; i++) {
             if (lines[i] !== this.prevLines[i]) {
                 process.stdout.write(`\x1b[${i+1};1H${lines[i]}\x1b[K`);
@@ -26,6 +28,5 @@ export class Screen {
             process.stdout.write(`\x1b[${i+1};1H\x1b[K`);
         }
         this.prevLines = [...lines];
-        
     }
 }

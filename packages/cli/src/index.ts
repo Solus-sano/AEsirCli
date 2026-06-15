@@ -2,7 +2,7 @@
 
 import readline from "node:readline/promises";
 
-import type { ChatMessage } from "@aesir/ai";
+import type { ChatMessage, Provider } from "@aesir/ai";
 import { resolveModel, getProvider, ifTooLong, compressMessages } from "@aesir/ai";
 import {
     runTurnStream,
@@ -20,6 +20,9 @@ import {
     type Tool,
 } from "@aesir/agent-core";
 import { printLLMStreamEvent, resetRenderState } from "./render.js";
+import { TUIApp } from "./tui/app.js";
+import { Screen } from "./tui/screen.js";
+import { onUserMessage } from "./tui/handler.js";
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -27,6 +30,7 @@ const rl = readline.createInterface({
 });
 
 const yoloMode = process.argv.includes("--yolo");
+const noTUI = process.argv.includes("--no-tui");
 
 async function confirmToolCall(toolName: string, args: unknown): Promise<boolean> {
     if (yoloMode) {
@@ -50,6 +54,91 @@ const tmpTool: Tool[] = [
 ]
 
 tmpTool.forEach(tool => registerTool(tool));
+
+
+async function baseCli(
+    messages: ChatMessage[], 
+    sessionManager: SessionManager, 
+    sessionId: string, 
+    LLMProvider: Provider
+): Promise<void> {
+    let currentController: AbortController | null = null;
+    rl.on("SIGINT", () => {
+        if (currentController) {
+            currentController.abort();
+            currentController = null;
+        } else {
+            console.log("\nGoodbye!");
+            process.exit(0);
+        }
+    });
+    while (true) {
+        // 用绿色">"提示符等待输入一行
+        const userInput: string = await rl.question('\x1b[32m>\x1b[0m ');
+        if (userInput.trim() === ":exit") {
+            rl.close();
+            console.log(`\x1b[34m[Session: ${sessionId}]\x1b[0m`);
+            console.log("\x1b[34m\nGoodbye!\x1b[0m");
+       
+            break;
+        }
+
+        // check if the messages are too long
+        if (ifTooLong(messages)) {
+            console.log("\x1b[90m[Messages are too long, compressing...]\x1b[0m");
+            const {messages: compressUserMessages} = await compressMessages(
+                {
+                    messages: messages,
+                    tools: []
+                },
+                LLMProvider
+            );
+
+            const summaryContent = compressUserMessages[0]?.content ?? "";
+            await sessionManager.append(sessionId, {
+                type: "summary",
+                content: summaryContent,
+                timestamp: new Date().toISOString()
+            });
+
+            messages = compressUserMessages;
+        }
+
+        messages.push({role: "user", content: userInput});
+
+        await sessionManager.append(sessionId, {
+            type: "user_message",
+            content: userInput,
+            timestamp: new Date().toISOString()
+        });
+        currentController = new AbortController();
+        const { signal } = currentController;
+        try {
+            const providerOutput = await runTurnStream(
+                {
+                    messages: messages,
+                    tools: Object.values(registry),
+                    signal: signal
+                },
+                LLMProvider,
+                (event) => sessionManager.append(sessionId, event),
+                printLLMStreamEvent,
+                confirmToolCall,
+            );
+        } catch (error) {
+            if (error instanceof DOMException && error.name === "AbortError") {
+                resetRenderState();
+                process.stdout.write('\n\x1b[31m[interrupted by user]\x1b[0m\n');
+                continue
+            } else {
+                console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+                continue;
+            }
+        } finally {
+            currentController = null
+        }
+    }
+}
 
 async function main() {
     if (yoloMode) {
@@ -126,83 +215,18 @@ async function main() {
         }
     }
 
-    let currentController: AbortController | null = null;
-    rl.on("SIGINT", () => {
-        if (currentController) {
-            currentController.abort();
-            currentController = null;
-        } else {
-            console.log("\nGoodbye!");
-            process.exit(0);
-        }
-    });
-
-    while (true) {
-        // 用绿色">"提示符等待输入一行
-        const userInput: string = await rl.question('\x1b[32m>\x1b[0m ');
-        if (userInput.trim() === ":exit") {
-            rl.close();
-            console.log(`\x1b[34m[Session: ${sessionId}]\x1b[0m`);
-            console.log("\x1b[34m\nGoodbye!\x1b[0m");
-       
-            break;
-        }
-
-        // check if the messages are too long
-        if (ifTooLong(messages)) {
-            console.log("\x1b[90m[Messages are too long, compressing...]\x1b[0m");
-            const {messages: compressUserMessages} = await compressMessages(
-                {
-                    messages: messages,
-                    tools: []
-                },
-                LLMProvider
-            );
-
-            const summaryContent = compressUserMessages[0]?.content ?? "";
-            await sessionManager.append(sessionId, {
-                type: "summary",
-                content: summaryContent,
-                timestamp: new Date().toISOString()
-            });
-
-            messages = compressUserMessages;
-        }
-
-        messages.push({role: "user", content: userInput});
-
-        await sessionManager.append(sessionId, {
-            type: "user_message",
-            content: userInput,
-            timestamp: new Date().toISOString()
+    if (noTUI) {
+        await baseCli(messages, sessionManager, sessionId, LLMProvider);
+    } else {
+        const screen = new Screen();
+        const tui = new TUIApp(screen, sessionManager, sessionId, LLMProvider, {
+            modelName: modelName,
+            onUserMessage,
         });
-        currentController = new AbortController();
-        const { signal } = currentController;
-        try {
-            const providerOutput = await runTurnStream(
-                {
-                    messages: messages,
-                    tools: Object.values(registry),
-                    signal: signal
-                },
-                LLMProvider,
-                (event) => sessionManager.append(sessionId, event),
-                printLLMStreamEvent,
-                confirmToolCall,
-            );
-        } catch (error) {
-            if (error instanceof DOMException && error.name === "AbortError") {
-                resetRenderState();
-                process.stdout.write('\n\x1b[31m[interrupted by user]\x1b[0m\n');
-                continue
-            } else {
-                console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
-                continue;
-            }
-        } finally {
-            currentController = null
-        }
+        tui.start();
     }
+
+    
 }
 
 await main();
