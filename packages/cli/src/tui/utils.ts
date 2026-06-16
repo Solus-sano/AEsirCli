@@ -22,12 +22,16 @@ function isWideChar(code: number): boolean {
     );
 }
 
+export function charDisplayWidth(code: number): number {
+    if (code > 0xffff) return 2;
+    return isWideChar(code) ? 2 : 1;
+}
+
 export function visibleWidth(str: string): number {
     const stripped = stripAnsi(str);
     let width = 0;
     for (const ch of stripped) {
-        const code = ch.codePointAt(0)!;
-        width += isWideChar(code) ? 2 : 1;
+        width += charDisplayWidth(ch.codePointAt(0)!);
     }
     return width;
 }

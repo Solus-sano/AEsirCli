@@ -1,6 +1,6 @@
 import { Screen } from "./screen.js";
 import { Editor } from "./editor.js";
-import { stripAnsi, visibleWidth } from "./utils.js";
+import { charDisplayWidth, visibleWidth } from "./utils.js";
 import type { ChatMessage, LLMEvent, Provider } from "@aesir/ai";
 import { SessionManager } from "@aesir/agent-core";
 import { abortCurrentTurn, isAgentRunning } from "./handler.js";
@@ -176,7 +176,9 @@ export class TUIApp {
 
     private scrollUp(): void {
         const chatHeight = this.getChatHeight();
-        const maxOffset = Math.max(0, this.conversationLines.length - chatHeight);
+        const cols = process.stdout.columns;
+        const displayLineCount = this.getWrappedConversationLines(cols).length;
+        const maxOffset = Math.max(0, displayLineCount - chatHeight);
         this.scrollOffset = Math.min(this.scrollOffset + 5, maxOffset);
     }
 
@@ -192,11 +194,15 @@ export class TUIApp {
         return process.stdout.rows - INPUT_HEIGHT - STATUS_HEIGHT - SEPARATOR_HEIGHT;
     }
 
-    private getChatLines(chatHeight: number): string[] {
-        const totalLines = this.conversationLines.length;
-        const end = totalLines - this.scrollOffset;
+    private getWrappedConversationLines(cols: number): string[] {
+        return this.conversationLines.flatMap((line) => this.wrapLine(line, cols));
+    }
+
+    private getChatLines(chatHeight: number, cols: number): string[] {
+        const displayLines = this.getWrappedConversationLines(cols);
+        const end = displayLines.length - this.scrollOffset;
         const start = Math.max(0, end - chatHeight);
-        const visible = this.conversationLines.slice(start, end);
+        const visible = displayLines.slice(start, end);
 
         while (visible.length < chatHeight) {
             visible.unshift("");
@@ -217,18 +223,77 @@ export class TUIApp {
     }
 
     render(): void {
-        const rows = process.stdout.rows;
         const cols = process.stdout.columns;
         const chatHeight = this.getChatHeight();
+        const displayLineCount = this.getWrappedConversationLines(cols).length;
+        const maxOffset = Math.max(0, displayLineCount - chatHeight);
+        this.scrollOffset = Math.min(this.scrollOffset, maxOffset);
 
-        const chatLines = this.getChatLines(chatHeight);
-        const truncatedChat = chatLines.map(line => this.truncateLine(line, cols));
+        const chatLines = this.getChatLines(chatHeight, cols);
         const separator = ["─".repeat(cols)];
         const editorLines = this.padLines(this.editor.render(cols), INPUT_HEIGHT);
         const statusLine = [this.truncateLine(this.getStatusLine(cols), cols)];
 
-        const frameLines = [...truncatedChat, ...separator, ...editorLines, ...statusLine];
+        const frameLines = [...chatLines, ...separator, ...editorLines, ...statusLine];
         this.screen.render(frameLines);
+    }
+
+    private wrapLine(line: string, maxCols: number): string[] {
+        if (maxCols <= 0) return [line];
+        if (line === "") return [""];
+        if (visibleWidth(line) <= maxCols) return [line];
+
+        const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
+        const wrapped: string[] = [];
+        let result = "";
+        let activeStyle = "";
+        let width = 0;
+        let lastIndex = 0;
+
+        const pushLine = () => {
+            wrapped.push(result + "\x1b[0m");
+            result = activeStyle;
+            width = 0;
+        };
+
+        while (lastIndex < line.length) {
+            ANSI_RE.lastIndex = lastIndex;
+            const match = ANSI_RE.exec(line);
+            const nextAnsiStart = match ? match.index : line.length;
+
+            for (let i = lastIndex; i < nextAnsiStart; i++) {
+                const code = line.codePointAt(i)!;
+                const charStr = String.fromCodePoint(code);
+                const cw = charDisplayWidth(code);
+
+                if (width + cw > maxCols && result.length > activeStyle.length) {
+                    pushLine();
+                }
+
+                width += cw;
+                result += charStr;
+                if (code > 0xffff) i++;
+            }
+
+            if (match) {
+                const seq = match[0];
+                result += seq;
+                if (seq === "\x1b[0m") {
+                    activeStyle = "";
+                } else if (seq.endsWith("m")) {
+                    activeStyle += seq;
+                }
+                lastIndex = ANSI_RE.lastIndex;
+            } else {
+                break;
+            }
+        }
+
+        if (result.length > 0 || wrapped.length === 0) {
+            wrapped.push(result + "\x1b[0m");
+        }
+
+        return wrapped;
     }
 
     private truncateLine(line: string, maxCols: number): string {
@@ -239,39 +304,24 @@ export class TUIApp {
         let width = 0;
         let lastIndex = 0;
 
-        // Walk through the string, preserving all ANSI sequences and
-        // counting only visible characters toward the width limit.
-        ANSI_RE.lastIndex = 0;
-        let match: RegExpExecArray | null;
-
         while (lastIndex < line.length) {
-            match = ANSI_RE.exec(line);
-
+            ANSI_RE.lastIndex = lastIndex;
+            const match = ANSI_RE.exec(line);
             const nextAnsiStart = match ? match.index : line.length;
 
-            // Process visible characters before the next ANSI sequence
             for (let i = lastIndex; i < nextAnsiStart; i++) {
                 const code = line.codePointAt(i)!;
                 const charStr = String.fromCodePoint(code);
-                const cw = code > 0xffff ? 2 :
-                    ((code >= 0x1100 && code <= 0x115f) ||
-                    (code >= 0x2e80 && code <= 0xa4cf) ||
-                    (code >= 0xac00 && code <= 0xd7af) ||
-                    (code >= 0xf900 && code <= 0xfaff) ||
-                    (code >= 0xfe30 && code <= 0xfe6f) ||
-                    (code >= 0xff01 && code <= 0xff60) ||
-                    (code >= 0xffe0 && code <= 0xffe6)) ? 2 : 1;
+                const cw = charDisplayWidth(code);
 
                 if (width + cw > maxCols - 1) {
                     return result + "\x1b[0m…";
                 }
                 width += cw;
                 result += charStr;
-                // Skip low surrogate if code point is above BMP
                 if (code > 0xffff) i++;
             }
 
-            // Append the ANSI sequence itself (zero width)
             if (match) {
                 result += match[0];
                 lastIndex = ANSI_RE.lastIndex;
