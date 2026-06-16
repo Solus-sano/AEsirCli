@@ -3,6 +3,7 @@ import { Editor } from "./editor.js";
 import { stripAnsi, visibleWidth } from "./utils.js";
 import type { ChatMessage, LLMEvent, Provider } from "@aesir/ai";
 import { SessionManager } from "@aesir/agent-core";
+import { abortCurrentTurn, isAgentRunning } from "./handler.js";
 
 const INPUT_HEIGHT = 3;
 const STATUS_HEIGHT = 1;
@@ -12,6 +13,10 @@ const SEPARATOR_HEIGHT = 1;
 const CLEAR_SCREEN = "\x1b[2J\x1b[H";
 const HIDE_CURSOR = "\x1b[?25l";
 const SHOW_CURSOR = "\x1b[?25h";
+const ENABLE_MOUSE_TRACKING = "\x1b[?1006h\x1b[?1000h";
+const DISABLE_MOUSE_TRACKING = "\x1b[?1006l\x1b[?1000l";
+const ENABLE_ALTERNATE_SCROLL = "\x1b[?1007h";
+const DISABLE_ALTERNATE_SCROLL = "\x1b[?1007l";
 
 export class TUIApp {
     private screen: Screen;
@@ -27,6 +32,9 @@ export class TUIApp {
     private stopped = false;
     private pendingToolArgs = "";
     private pendingToolName = "";
+    private usagePromptTokens: number | null = null;
+    private usageCompletionTokens: number | null = null;
+    private usageCachedTokens: number | null = null;
 
     constructor(
         screen: Screen, 
@@ -75,28 +83,71 @@ export class TUIApp {
     }
 
     handleInput(text: string): void {
-        if (text === "\x1b[5~") {
-            this.scrollUp();
-            return;
-        }
-        if (text === "\x1b[6~") {
-            this.scrollDown();
+        if (this.tryHandleScroll(text)) {
             return;
         }
         this.editor.handleInput(text);
     }
 
+    private tryHandleScroll(text: string): boolean {
+        if (text === "\x1b[5~") {
+            this.scrollUp();
+            this.render();
+            return true;
+        }
+        if (text === "\x1b[6~") {
+            this.scrollDown();
+            this.render();
+            return true;
+        }
+        if (text === "\x1b[1;2A" || text === "\x1b[1;2B") {
+            if (text === "\x1b[1;2A") {
+                this.scrollUp();
+            } else {
+                this.scrollDown();
+            }
+            this.render();
+            return true;
+        }
+        if (text.startsWith("\x1b[<64;") || (text.startsWith("\x1b[M") && text.charCodeAt(3) === 36)) {
+            this.scrollUp();
+            this.render();
+            return true;
+        }
+        if (text.startsWith("\x1b[<65;") || (text.startsWith("\x1b[M") && text.charCodeAt(3) === 37)) {
+            this.scrollDown();
+            this.render();
+            return true;
+        }
+        // Alternate scroll mode maps wheel to arrow keys on some terminals.
+        if (this.editor.isSingleLine() && (text === "\x1b[A" || text === "\x1b[B")) {
+            if (text === "\x1b[A") {
+                this.scrollUp();
+            } else {
+                this.scrollDown();
+            }
+            this.render();
+            return true;
+        }
+        return false;
+    }
+
     start(): void {
         process.stdin.setRawMode(true);
         process.stdin.resume();
-        process.stdout.write(`${CLEAR_SCREEN}${HIDE_CURSOR}`);
+        process.stdout.write(`${CLEAR_SCREEN}${HIDE_CURSOR}${ENABLE_MOUSE_TRACKING}${ENABLE_ALTERNATE_SCROLL}`);
         this.render();
 
         process.stdin.on('data', (data) => {
             const key = data.toString();
             if (key === "\x03") {
-                this.stop();
-                process.exit(0);
+                if (isAgentRunning()) {
+                    abortCurrentTurn();
+                } else {
+                    this.stop();
+                    process.exit(0);
+                }
+                return;
             }
             this.handleInput(key);
             this.render();
@@ -118,7 +169,7 @@ export class TUIApp {
     stop(): void {
         if (this.stopped) return;
         this.stopped = true;
-        process.stdout.write(`\x1b[0m${SHOW_CURSOR}`);
+        process.stdout.write(`\x1b[0m${DISABLE_MOUSE_TRACKING}${DISABLE_ALTERNATE_SCROLL}${SHOW_CURSOR}`);
         process.stdin.setRawMode(false);
         process.stdin.pause();
     }
@@ -158,8 +209,11 @@ export class TUIApp {
         const scrollInfo = this.scrollOffset > 0
             ? `\x1b[33m [↑${this.scrollOffset}]\x1b[0m`
             : "";
-        const hint = `\x1b[90mEnter:send | Shift+Enter:newline | PgUp/PgDn:scroll | Ctrl+C:exit\x1b[0m`;
-        return ` ${model}${scrollInfo}  ${hint}`;
+        const usageInfo = this.usagePromptTokens !== null
+            ? `\x1b[2m\x1b[34m ${this.usagePromptTokens} in / ${this.usageCompletionTokens} out / ${this.usageCachedTokens} cached\x1b[0m`
+            : "";
+        const hint = `\x1b[90mEnter:send | Shift+Enter:newline\x1b[0m`;
+        return ` ${model}${scrollInfo}${usageInfo}  ${hint}`;
     }
 
     render(): void {
@@ -299,8 +353,13 @@ export class TUIApp {
         } else if (event.type === "usage") {
             this.endThinking();
             this.flushPendingTool();
-            const cachedTokens = event.usage.cached_tokens ?? event.usage.prompt_cache_hit_tokens ?? event.usage.prompt_tokens_details?.cached_tokens;
-            this.appendStreamingText(`\x1b[2m\x1b[34m[tokens: ${event.usage.prompt_tokens} in / ${event.usage.completion_tokens} out / ${cachedTokens} cached]\x1b[0m\n`);
+            this.usagePromptTokens = event.usage.prompt_tokens;
+            this.usageCompletionTokens = event.usage.completion_tokens;
+            this.usageCachedTokens = event.usage.cached_tokens
+                ?? event.usage.prompt_cache_hit_tokens
+                ?? event.usage.prompt_tokens_details?.cached_tokens
+                ?? 0;
+            this.render();
         } else if (event.type === "done") {
             this.endThinking();
             this.flushPendingTool();

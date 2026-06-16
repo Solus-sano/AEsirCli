@@ -30,6 +30,10 @@ export class Editor {
         return this.lines.join("\n");
     }
 
+    isSingleLine(): boolean {
+        return this.lines.length <= 1;
+    }
+
     handleInput(data: string): void {
         if (data === "\r") {
             this.submit();
