@@ -3,6 +3,7 @@ node_modules/
 .env
 .DS_Store
 .cache/
+.aesir/
 
 test/tmp/
 CLAUDE.md
