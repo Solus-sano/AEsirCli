@@ -17,7 +17,8 @@
   },
   "dependencies": {
     "@aesir/ai": "workspace:*",
-    "zod": "^4.4.3",
-    "fast-glob": "^3.3.3"
+    "fast-glob": "^3.3.3",
+    "jiti": "^2.7.0",
+    "zod": "^4.4.3"
   }
 }

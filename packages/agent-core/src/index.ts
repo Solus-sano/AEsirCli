@@ -11,3 +11,7 @@ export { writeFileTool } from "./tools/write-file.js";
 export { editFileTool } from "./tools/edit-file.js";
 export { globTool } from "./tools/glob.js";
 export { grepTool } from "./tools/grep.js";
+export { createExtensionAPI } from "./extensions/api.js";
+export type { Extension, ExtensionAPI, ExtensionFactory, ExtensionEvent, RegisteredCommand } from "./extensions/types.js";
+export { discoverExtensions, loadExtension } from "./extensions/loader.js";
+export { ExtensionRunner } from "./extensions/runner.js";

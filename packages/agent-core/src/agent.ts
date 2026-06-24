@@ -5,6 +5,8 @@ import { z } from "zod";
 
 import type { ChatMessage, AssistantMessage, ToolCall, LLMEvent } from "@aesir/ai";
 import type { ProviderInput, Provider } from "@aesir/ai";
+import type { ExtensionRunner } from "./extensions/runner.js";
+import type { EventHandlerResult } from "./extensions/types.js";
 
 export type RenderFn = (event: LLMEvent) => void;
 export type TruncateFn = (output: string) => string;
@@ -39,6 +41,7 @@ function defaultTruncate(output: string): string {
 export async function runTurnStream(
     input: ProviderInput, 
     LLMProvider: Provider,
+    extensionRunner?: ExtensionRunner,
     onEvent?: (event: SessionEvent) => Promise<void>,
     renderFn?: RenderFn,
     confirmToolCall?: (toolName: string, args: unknown) => Promise<boolean>,
@@ -122,18 +125,47 @@ export async function runTurnStream(
                 let tool_result: string;
                 try {
                     const parsedArgs = tool.schema.parse(JSON.parse(toolCall.function.arguments));
+                    if (extensionRunner) {
+                        const extensionHandlerResult: EventHandlerResult = await extensionRunner.emit({
+                            type: "tool_call",
+                            toolName: tool.name,
+                            args: parsedArgs,
+                        });
+                        if (extensionHandlerResult && "block" in extensionHandlerResult && extensionHandlerResult.block) {
+                            tool_result = extensionHandlerResult.reason;
+                            input.messages.push({role: "tool", content: tool_result, tool_call_id: toolCall.id});
+                            await onEvent?.({
+                                type: "tool_result",
+                                tool_call_id: toolCall.id,
+                                content: tool_result,
+                                timestamp: new Date().toISOString()
+                            } as SessionEvent);
+                            continue;
+                        }
+                    }
+                    
                     if (tool.needsConfirmation && confirmToolCall) {
                         const confirmed = await confirmToolCall(tool.name, parsedArgs);
                         if (!confirmed) {
                             tool_result = "Tool call denied by user";
                         } else {
                             tool_result = await tool.run(parsedArgs);
-                            tool_result = truncateFn(tool_result);
                         }
                     } else {
                         tool_result = await tool.run(parsedArgs);
-                        tool_result = truncateFn(tool_result);
                     }
+
+                    if (extensionRunner) {
+                        const extensionHandlerResult = await extensionRunner.emit({
+                            type: "tool_result",
+                            toolName: tool.name,
+                            result: tool_result,
+                        });
+                        if (extensionHandlerResult && "modifiedResult" in extensionHandlerResult) {
+                            tool_result = extensionHandlerResult.modifiedResult;
+                        }
+                    }
+                    tool_result = truncateFn(tool_result);
                 } catch (error: unknown) {
                     if (error instanceof z.ZodError) {
                         tool_result = `Invalid arguments for tool ${toolCall.function.name}: ${error.message}`;

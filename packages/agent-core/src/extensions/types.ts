@@ -19,7 +19,7 @@ export type ExtensionEvent =
 
 export interface Extension {
     path: string
-    handlers: Map<string, EventHandler[]>
+    handlers: Map<string, EventHandler[]> // event type -> handlers
     tools: Map<string, Tool>
     commands: Map<string, RegisteredCommand>
 }
