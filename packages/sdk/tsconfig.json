@@ -1,0 +1,19 @@
+{
+    "compilerOptions": {
+        "module": "nodenext",
+        "target": "esnext",
+        "strict": true,
+        "noEmit": true,
+        "rootDir": ".",
+        "outDir": "./dist",
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+        "noUncheckedIndexedAccess": true,
+        "verbatimModuleSyntax": true,
+        "isolatedModules": true,
+        "skipLibCheck": true,
+        "types": ["node"]
+    },
+    "include": ["src/**/*", "test/**/*"]
+}

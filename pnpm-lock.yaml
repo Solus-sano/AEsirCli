@@ -51,6 +51,19 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
+  packages/sdk:
+    dependencies:
+      '@aesir/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+      '@aesir/ai':
+        specifier: workspace:*
+        version: link:../ai
+    devDependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
 packages:
 
   '@esbuild/aix-ppc64@0.27.7':
