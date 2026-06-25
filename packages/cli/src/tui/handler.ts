@@ -60,6 +60,7 @@ export async function onUserMessage(
                 signal: signal
             },
             LLMProvider,
+            undefined,
             (event) => sessionManager.append(sessionId, event),
             renderFn,
         );

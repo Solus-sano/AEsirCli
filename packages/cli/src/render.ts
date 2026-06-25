@@ -11,6 +11,12 @@ export function resetRenderState() {
     }
 }
 
+export function printLLMStreamEventOnlyText(event: LLMEvent) {
+    if (event.type === "text-delta") {
+        process.stdout.write(`${event.text}`);
+    }
+}
+
 export function printLLMStreamEvent(event: LLMEvent) {
     if (event.type === "reasoning-delta") {
         if (!inThinking) {

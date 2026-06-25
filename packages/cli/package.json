@@ -19,5 +19,8 @@
   "dependencies": {
     "@aesir/ai": "workspace:*",
     "@aesir/agent-core": "workspace:*"
+  },
+  "devDependencies": {
+    "zod": "^4.4.3"
   }
 }
