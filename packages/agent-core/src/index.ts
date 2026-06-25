@@ -15,3 +15,4 @@ export { createExtensionAPI } from "./extensions/api.js";
 export type { Extension, ExtensionAPI, ExtensionFactory, ExtensionEvent, RegisteredCommand } from "./extensions/types.js";
 export { discoverExtensions, loadExtension } from "./extensions/loader.js";
 export { ExtensionRunner } from "./extensions/runner.js";
+export { registerBuiltinCommands, executeCommand, isSlashCommand } from "./commands.js";

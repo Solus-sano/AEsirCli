@@ -32,5 +32,5 @@ export type EventHandlerResult =
 export interface RegisteredCommand {
     name: string
     description?: string
-    handler: (args: string) => Promise<void>
+    handler: (args: string) => Promise<string | void>
 } 
