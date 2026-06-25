@@ -328,6 +328,7 @@ async function main() {
         }
     }
 
+    await extensionRunner?.emit({ type: "session_start" });
     if (printMode) {
         messages.push({role: "user", content: printModeInput ?? ""});
         await printModeCli(messages, sessionManager, sessionId, LLMProvider, extensionRunner, extensionCommands);
